@@ -62,3 +62,8 @@ export MISTRAL_API_KEY=your_key_here
 ## License
 
 MIT
+
+## Связанные проекты TokenBel
+
+- 🔗 **[Лендинг - tokenbel.info](https://tokenbel.info/)**
+- 🔗 **[Агрегатор токенов - dashboard.tokenbel.info](https://dashboard.tokenbel.info/)**
