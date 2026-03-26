@@ -1,11 +1,11 @@
 [package]
 name = "tbel-pdf"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
-authors = ["Red Panda Dev"]
+authors = ["TBel team"]
 license = "MIT"
-repository = "https://github.com/Red-Panda-Dev/tbel"
-homepage = "https://github.com/Red-Panda-Dev/tbel"
+repository = "https://github.com/Red-Panda-Dev/tokenbel-pdf"
+homepage = "https://dashboard.tokenbel.info/"
 rust-version = "1.70"
 description = "PDF processing pipeline for Belarusian financial reports with OCR, table extraction, and data normalization"
 readme = "README.md"
