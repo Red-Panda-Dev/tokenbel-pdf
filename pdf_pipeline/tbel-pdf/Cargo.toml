@@ -9,7 +9,7 @@ homepage = "https://github.com/Red-Panda-Dev/tbel"
 rust-version = "1.70"
 description = "PDF processing pipeline for Belarusian financial reports with OCR, table extraction, and data normalization"
 readme = "README.md"
-keywords = ["pdf", "ocr", "belarusian", "financial", "data-extraction", "xlsx", "mistral"]
+keywords = ["pdf", "ocr", "financial", "data-extraction", "xlsx", "mistral"]
 categories = ["parser-implementations", "finance", "command-line-utilities"]
 
 [features]
