@@ -17,7 +17,7 @@ pub enum DateError {
 }
 
 const DEFAULT_MISTRAL_MODEL: &str = "mistral-large-latest";
-const DATE_PROMPT_TEMPLATE: &str = include_str!("../../prompts/financial_date_extraction.txt");
+const DATE_PROMPT_TEMPLATE: &str = include_str!("../prompts/financial_date_extraction.txt");
 
 /// Trait for date header normalization.
 #[async_trait]
