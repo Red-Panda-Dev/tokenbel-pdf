@@ -30,7 +30,3 @@ cargo fmt --all
 
 - 🔗 **[Лендинг - tokenbel.info](https://tokenbel.info/)**
 - 🔗 **[Агрегатор токенов - dashboard.tokenbel.info](https://dashboard.tokenbel.info/)**
-
-## Примечание
-
-Если вы переносите содержимое `rust/` в отдельный репозиторий, этот каталог можно использовать как корневую точку для всей Rust-части пайплайна обработки PDF.
