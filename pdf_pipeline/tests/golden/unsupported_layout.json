@@ -1,0 +1,9 @@
+{
+  "fixture": "unsupported_layout",
+  "report_type": "income_statement",
+  "headers": [],
+  "row_count": 0,
+  "columns": 0,
+  "data": [],
+  "error": "unsupported_layout"
+}

@@ -1,0 +1,165 @@
+{
+  "version": "1.0.0",
+  "generated": "2026-03-10",
+  "source_manifest": "manifest.json",
+  "entries": [
+    {
+      "family": "native_pdf",
+      "json_artifact": "native_pdf.json",
+      "json_hash": "25bd1e1337b401c345c7c0cebe9678d240134d606811a08f9750f7e232730b24",
+      "xlsx_artifact": "native_pdf.xlsx",
+      "xlsx_hash": "5246adc3e9ecfb1e3262eb4fb878911d4563282e879fd826efce4d529f3e7108",
+      "report_type": "balance_sheet",
+      "expected_success": true,
+      "expected_failure_reason": null,
+      "expected_row_count": 15,
+      "expected_headers": [
+        "code",
+        "01.2023",
+        "02.2023",
+        "03.2023"
+      ]
+    },
+    {
+      "family": "scanned_pdf",
+      "json_artifact": "scanned_pdf.json",
+      "json_hash": "3631f6f23da81b9e06946320140b49b0573655f5f2aadd244a1d9d8a6dcbe9ff",
+      "xlsx_artifact": "scanned_pdf.xlsx",
+      "xlsx_hash": "bdbb4a660371c9bfa38e3229ff394952d244e4065c0d4703d7bbfa769aa9738b",
+      "report_type": "income_statement",
+      "expected_success": true,
+      "expected_failure_reason": null,
+      "expected_row_count": 12,
+      "expected_headers": [
+        "code",
+        "01.2024",
+        "02.2024",
+        "03.2024"
+      ]
+    },
+    {
+      "family": "merged_table_pdf",
+      "json_artifact": "merged_table_pdf.json",
+      "json_hash": "4cd0ff56df978b7b9f36a31de77b748e0fd85afbd846ddc48c855dd2aee4fff9",
+      "xlsx_artifact": "merged_table_pdf.xlsx",
+      "xlsx_hash": "e80aca18ddef5fb1aab43e5db10aeec0224601f7915edee486e40193e30153cc",
+      "report_type": "statement_cash_flow",
+      "expected_success": true,
+      "expected_failure_reason": null,
+      "expected_row_count": 18,
+      "expected_headers": [
+        "code",
+        "01.2023",
+        "02.2023",
+        "03.2023",
+        "04.2023"
+      ]
+    },
+    {
+      "family": "malformed_ocr",
+      "json_artifact": "malformed_ocr.json",
+      "json_hash": "daac825251815817b2f77c786fb7c5a53493ac295bb67c61e9bd3961bba38e02",
+      "xlsx_artifact": "malformed_ocr.xlsx",
+      "xlsx_hash": "6b33e3230342af3e4110d6da51c94d7bcaac29db1a3d5379cc9a3da8448b4ca1",
+      "report_type": "balance_sheet",
+      "expected_success": true,
+      "expected_failure_reason": null,
+      "expected_row_count": 10,
+      "expected_headers": [
+        "code",
+        "01.2023",
+        "02.2023",
+        "03.2023"
+      ]
+    },
+    {
+      "family": "no_table",
+      "json_artifact": "no_table.json",
+      "json_hash": "d8e48145451503cb80e559bbecf22071738d3a15cc0b68e1dd8431dca6234663",
+      "xlsx_artifact": "no_table.xlsx",
+      "xlsx_hash": "b3dd8cf94225198883d26681765f4abe0ed06aa90160c5d7f65836d10a94d56a",
+      "report_type": "balance_sheet",
+      "expected_success": false,
+      "expected_failure_reason": "no_table_detected",
+      "expected_row_count": 0,
+      "expected_headers": []
+    },
+    {
+      "family": "unsupported_layout",
+      "json_artifact": "unsupported_layout.json",
+      "json_hash": "84e4844602b96adab7ad959eb3554c4c26ea2f61575ad30cf847f192f1712a24",
+      "xlsx_artifact": "unsupported_layout.xlsx",
+      "xlsx_hash": "b3dd8cf94225198883d26681765f4abe0ed06aa90160c5d7f65836d10a94d56a",
+      "report_type": "income_statement",
+      "expected_success": false,
+      "expected_failure_reason": "unsupported_layout",
+      "expected_row_count": 0,
+      "expected_headers": []
+    },
+    {
+      "family": "date_translation_failure",
+      "json_artifact": "date_translation_failure.json",
+      "json_hash": "cd12b04af93e03cff6b2d5b5b2d4522b4d9d06aebdf68197aeb13534d5abf668",
+      "xlsx_artifact": "date_translation_failure.xlsx",
+      "xlsx_hash": "5fc37f5bb75fc291c9a5c651d0c77166163ee013095fd4846ed0b91a3d48d907",
+      "report_type": "balance_sheet",
+      "expected_success": true,
+      "expected_failure_reason": null,
+      "expected_row_count": 11,
+      "expected_headers": [
+        "code",
+        "ERROR",
+        "02.2023"
+      ]
+    },
+    {
+      "family": "under_dimension_rows",
+      "json_artifact": "under_dimension_rows.json",
+      "json_hash": "3b5f4c607a4e2666e4ac8ea2a7283ab72db404f7ff73e6d25fc7e2ae1b8a2f36",
+      "xlsx_artifact": "under_dimension_rows.xlsx",
+      "xlsx_hash": "9d04c23303b379bbffc790c989e775407311d62f5942e8fab2c15373593dff38",
+      "report_type": "balance_sheet",
+      "expected_success": false,
+      "expected_failure_reason": "under_dimension",
+      "expected_row_count": 5,
+      "expected_headers": [
+        "code",
+        "01.2023"
+      ]
+    },
+    {
+      "family": "under_dimension_columns",
+      "json_artifact": "under_dimension_columns.json",
+      "json_hash": "f6c266e8dfb9725e0cd8ca5edaa5945e5cf0b18fb06a74ce3a697224af03e66c",
+      "xlsx_artifact": "under_dimension_columns.xlsx",
+      "xlsx_hash": "06fcdb1ea9c6603486b95d9b5a44784ca6f22e6ca67064bc9118d4327fa8a4ba",
+      "report_type": "balance_sheet",
+      "expected_success": false,
+      "expected_failure_reason": "under_dimension",
+      "expected_row_count": 15,
+      "expected_headers": [
+        "code",
+        "01.2023"
+      ]
+    },
+    {
+      "family": "statement_equity_changes",
+      "json_artifact": "statement_equity_changes.json",
+      "json_hash": "8a8a0eabd7ec7d4d2b5783337414e6536dd4d2593223f4db5607c4131edb3f49",
+      "xlsx_artifact": "statement_equity_changes.xlsx",
+      "xlsx_hash": "8e55076bce97012a341b015adfe3a5b350709f1b88fdf0c3101fe8141b28c8c7",
+      "report_type": "statement_equity_changes",
+      "expected_success": true,
+      "expected_failure_reason": null,
+      "expected_row_count": 20,
+      "expected_headers": [
+        "code",
+        "01.2023",
+        "02.2023",
+        "03.2023",
+        "04.2023",
+        "05.2023"
+      ]
+    }
+  ]
+}

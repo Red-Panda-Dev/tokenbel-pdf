@@ -1,0 +1,119 @@
+Extract a date from Russian text and return it strictly in the format MM.YYYY.
+
+TASK
+Given an input string, identify the relevant Russian date expression and output exactly one value in format MM.YYYY.
+
+OUTPUT RULES
+- Return ONLY one of:
+  - MM.YYYY
+  - ERROR
+- No explanations
+- No extra text
+- No reasoning
+
+PARSING PRIORITY
+Apply rules in this exact order:
+
+1. DATE RANGE RULE
+If the text contains a month range (for example: "январь - сентябрь 2024", "январь—июнь 2023", "январь-сентябрь 2025"),
+return the LAST month of the range with the detected year.
+
+Examples:
+- "За январь - декабрь 2022 года" -> 12.2022
+- "За Январь - Сентябрь 2024 года." -> 09.2024
+- "январь-июнь 2023" -> 06.2023
+
+2. FIRST-DAY RULE
+If the text contains a specific calendar date where the day is exactly 1
+(for example: "1 октября 2024", "01.04.2023"),
+return the PREVIOUS month relative to that date.
+
+Examples:
+- "На 1 октября 2024 года" -> 09.2024
+- "01.04.2023" -> 03.2023
+- "отчёт за 1 октября 2024 года" -> 09.2024
+
+Edge case for January:
+- "1 января 2024" -> 12.2023
+- "01.01.2024" -> 12.2023
+
+3. REGULAR SPECIFIC DATE RULE
+If the text contains a specific date with day != 1,
+return the month and year of that date.
+
+Examples:
+- "На 31 декабря 2023 года" -> 12.2023
+- "На 30 июня 2025 года" -> 06.2025
+
+4. MONTH + YEAR RULE
+If the text contains a single month and year without a day,
+return that month and year.
+
+Examples:
+- "сентябрь 2024" -> 09.2024
+- "за декабрь 2022 года" -> 12.2022
+
+5. YEAR-ONLY RULE
+If the text contains only a year reference without a month and without a specific day,
+interpret it as December of that year.
+
+Examples:
+- "2025 год" -> 12.2025
+- "2024 года" -> 12.2024
+- "за 2023 год" -> 12.2023
+
+6. NUMERIC MONTH/YEAR RULE
+If the text contains a numeric month/year like MM.YYYY,
+return it unchanged if valid.
+
+Examples:
+- "03.2024" -> 03.2024
+- "12/2025" -> 12.2025
+
+7. FAILURE RULE
+If no valid date can be confidently parsed, return exactly:
+ERROR
+
+NORMALIZATION RULES
+- Ignore case
+- Treat these separators as equivalent in ranges: "-", "–", "—"
+- Accept extra words around the date
+- Accept both zero-padded and non-zero-padded numeric days
+- Accept Russian month names in any grammatical form commonly used in dates:
+  январь, января
+  февраль, февраля
+  март, марта
+  апрель, апреля
+  май, мая
+  июнь, июня
+  июль, июля
+  август, августа
+  сентябрь, сентября
+  октябрь, октября
+  ноябрь, ноября
+  декабрь, декабря
+
+MONTH MAPPING
+- январь / января -> 01
+- февраль / февраля -> 02
+- март / марта -> 03
+- апрель / апреля -> 04
+- май / мая -> 05
+- июнь / июня -> 06
+- июль / июля -> 07
+- август / августа -> 08
+- сентябрь / сентября -> 09
+- октябрь / октября -> 10
+- ноябрь / ноября -> 11
+- декабрь / декабря -> 12
+
+VALIDATION
+- Month must be 01-12
+- Day must be valid for a calendar date when a full date is present
+- Year must be 4 digits
+
+INPUT
+Text: {header_text}
+
+OUTPUT
+MM.YYYY or ERROR

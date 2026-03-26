@@ -1,0 +1,11 @@
+//! Prompt template for extracting financial date headers from Belarusian PDF reports.
+//!
+//! Task
+Convert the like "01 января 2024" or "12.2024" to "MM.YYYY" format.
+where:
+- The input contains a full date (e.g., "1 января 2024", "01.02.2024", "01.01.2024", "01.02.2024")
+" to the "MM.YYYY" format.
+- If the date cannot be parsed, return the original header unchanged.
+
+- For other date headers, try to parse as "MM.YYYY" by matching against these patterns:
+and return the normalized header.

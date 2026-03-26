@@ -1,0 +1,9 @@
+{
+  "fixture": "no_table",
+  "report_type": "balance_sheet",
+  "headers": [],
+  "row_count": 0,
+  "columns": 0,
+  "data": [],
+  "error": "no_table_detected"
+}

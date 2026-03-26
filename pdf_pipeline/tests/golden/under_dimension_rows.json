@@ -1,0 +1,33 @@
+{
+  "fixture": "under_dimension_rows",
+  "report_type": "balance_sheet",
+  "headers": [
+    "code",
+    "01.2023"
+  ],
+  "row_count": 5,
+  "columns": 2,
+  "data": [
+    {
+      "code": 10,
+      "01.2023": 1000
+    },
+    {
+      "code": 110,
+      "01.2023": 500
+    },
+    {
+      "code": 120,
+      "01.2023": 300
+    },
+    {
+      "code": 130,
+      "01.2023": 200
+    },
+    {
+      "code": 140,
+      "01.2023": 100
+    }
+  ],
+  "error": "under_dimension"
+}

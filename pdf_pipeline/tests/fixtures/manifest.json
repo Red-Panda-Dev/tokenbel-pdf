@@ -1,0 +1,135 @@
+{
+    "version": "1.0.0",
+    "description": "Fixture manifest for Rust PDF pipeline testing",
+    "generated": "2026-03-10",
+    "fixture_families": [
+        {
+            "family": "native_pdf",
+            "description": "Standard native PDF with clear table structure, proper headers and data",
+            "pdf_path": "pdfs/native_balance_sheet.pdf",
+            "report_type": "balance_sheet",
+            "expected_success": true,
+            "expected_failure_reason": null,
+            "expected_headers": ["code", "01.2023", "02.2023", "03.2023"],
+            "expected_row_count": 15,
+            "notes": "Happy path - standard 4-column table with numeric codes and proper dates"
+        },
+        {
+            "family": "scanned_pdf",
+            "description": "Scanned/OCR PDF with table structure that requires OCR processing",
+            "pdf_path": "pdfs/scanned_income_statement.pdf",
+            "report_type": "income_statement",
+            "expected_success": true,
+            "expected_failure_reason": null,
+            "expected_headers": ["code", "01.2024", "02.2024", "03.2024"],
+            "expected_row_count": 12,
+            "notes": "OCR-processed PDF that still has clean table structure"
+        },
+        {
+            "family": "merged_table_pdf",
+            "description": "PDF with 6-column merged table that needs special extraction",
+            "pdf_path": "pdfs/merged_6col_cash_flow.pdf",
+            "report_type": "statement_cash_flow",
+            "expected_success": true,
+            "expected_failure_reason": null,
+            "expected_headers": ["code", "01.2023", "02.2023", "03.2023", "04.2023"],
+            "expected_row_count": 18,
+            "notes": "6-column table requiring COLUMN_EXTRACTION_6COL extraction"
+        },
+        {
+            "family": "malformed_ocr",
+            "description": "OCR PDF with blank spacer columns and malformed cell boundaries",
+            "pdf_path": "pdfs/malformed_ocr_balance_sheet.pdf",
+            "report_type": "balance_sheet",
+            "expected_success": true,
+            "expected_failure_reason": null,
+            "expected_headers": ["code", "01.2023", "02.2023", "03.2023"],
+            "expected_row_count": 10,
+            "notes": "OCR artifacts create empty header columns that need removal"
+        },
+        {
+            "family": "no_table",
+            "description": "PDF with no financial table - should fail gracefully",
+            "pdf_path": "pdfs/no_table_document.pdf",
+            "report_type": "balance_sheet",
+            "expected_success": false,
+            "expected_failure_reason": "no_table_detected",
+            "expected_headers": [],
+            "expected_row_count": 0,
+            "notes": "Document contains text but no financial table structure"
+        },
+        {
+            "family": "unsupported_layout",
+            "description": "PDF with unusual layout not supported by the pipeline",
+            "pdf_path": "pdfs/unsupported_layout.pdf",
+            "report_type": "income_statement",
+            "expected_success": false,
+            "expected_failure_reason": "unsupported_layout",
+            "expected_headers": [],
+            "expected_row_count": 0,
+            "notes": "Complex layout with merged cells spanning multiple rows/columns"
+        },
+        {
+            "family": "date_translation_failure",
+            "description": "PDF with dates that Mistral cannot parse correctly",
+            "pdf_path": "pdfs/bad_date_headers.pdf",
+            "report_type": "balance_sheet",
+            "expected_success": true,
+            "expected_failure_reason": null,
+            "expected_headers": ["code", "ERROR", "02.2023"],
+            "expected_row_count": 11,
+            "notes": "One date header returns ERROR from Mistral, kept as-is"
+        },
+        {
+            "family": "under_dimension_rows",
+            "description": "PDF with valid table but too few rows",
+            "pdf_path": "pdfs/under_rows_balance_sheet.pdf",
+            "report_type": "balance_sheet",
+            "expected_success": false,
+            "expected_failure_reason": "under_dimension",
+            "expected_headers": ["code", "01.2023"],
+            "expected_row_count": 5,
+            "notes": "Only 5 data rows - below minimum of 10"
+        },
+        {
+            "family": "under_dimension_columns",
+            "description": "PDF with valid table but too few columns",
+            "pdf_path": "pdfs/under_cols_balance_sheet.pdf",
+            "report_type": "balance_sheet",
+            "expected_success": false,
+            "expected_failure_reason": "under_dimension",
+            "expected_headers": ["code", "01.2023"],
+            "expected_row_count": 15,
+            "notes": "Only 2 columns - below minimum of 3"
+        },
+        {
+            "family": "statement_equity_changes",
+            "description": "Statement of equity changes with specific structure",
+            "pdf_path": "pdfs/equity_changes.pdf",
+            "report_type": "statement_equity_changes",
+            "expected_success": true,
+            "expected_failure_reason": null,
+            "expected_headers": ["code", "01.2023", "02.2023", "03.2023", "04.2023", "05.2023"],
+            "expected_row_count": 20,
+            "notes": "Equity changes statement with multiple periods"
+        }
+    ],
+    "required_fields": [
+        "family",
+        "description",
+        "pdf_path",
+        "report_type",
+        "expected_success",
+        "expected_failure_reason",
+        "expected_headers",
+        "expected_row_count"
+    ],
+    "supported_report_types": ["balance_sheet", "income_statement", "statement_cash_flow", "statement_equity_changes"],
+    "validation_rules": {
+        "min_columns": 3,
+        "min_rows": 10,
+        "code_column_name": "code",
+        "date_format": "MM.YYYY",
+        "xlsx_sheet_name": "Financial_Data"
+    }
+}
