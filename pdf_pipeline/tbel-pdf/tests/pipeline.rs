@@ -4,8 +4,8 @@
 
 use std::path::PathBuf;
 use tbel_pdf::{
-    extract_table_candidates, preprocess_markdown,
-    MockOcrProvider, OcrProvider, PdfInput, ReportType,
+    extract_table_candidates, preprocess_markdown, MockOcrProvider, OcrProvider, PdfInput,
+    ReportType,
 };
 
 fn fixtures_dir() -> PathBuf {
@@ -172,9 +172,18 @@ fn markdown_to_html(markdown: &str) -> String {
 fn test_report_type_inference_from_golden_files() {
     let test_cases = vec![
         ("2024_balance_sheet.pdf", Some(ReportType::BalanceSheet)),
-        ("2024_income_statement.pdf", Some(ReportType::IncomeStatement)),
-        ("2024_statement_cash_flow.pdf", Some(ReportType::StatementCashFlow)),
-        ("2024_statement_equity_changes.pdf", Some(ReportType::StatementEquityChanges)),
+        (
+            "2024_income_statement.pdf",
+            Some(ReportType::IncomeStatement),
+        ),
+        (
+            "2024_statement_cash_flow.pdf",
+            Some(ReportType::StatementCashFlow),
+        ),
+        (
+            "2024_statement_equity_changes.pdf",
+            Some(ReportType::StatementEquityChanges),
+        ),
         ("unknown_report.pdf", None),
     ];
 
@@ -202,7 +211,10 @@ fn test_golden_files_exist() {
     for name in golden_names {
         let json_path = golden_dir().join(format!("{}.json", name));
         let xlsx_path = golden_dir().join(format!("{}.xlsx", name));
-        assert!(json_path.exists() || xlsx_path.exists(), 
-            "Golden file missing for: {}", name);
+        assert!(
+            json_path.exists() || xlsx_path.exists(),
+            "Golden file missing for: {}",
+            name
+        );
     }
 }
