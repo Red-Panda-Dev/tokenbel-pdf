@@ -33,6 +33,68 @@ pub enum PdfInput {
 }
 
 impl PdfInput {
+    /// Create a `PdfInput` from bytes.
+    ///
+    /// This is the recommended portable constructor that works on both native and wasm32 targets.
+    /// Use this when you have the PDF content in memory (e.g., downloaded from a network or read
+    /// from a custom source).
+    ///
+    /// # Arguments
+    /// * `bytes` - Raw PDF file bytes
+    /// * `document_id` - Unique identifier for this document
+    /// * `filename` - Optional filename for reference (does not affect processing)
+    #[must_use]
+    pub fn from_bytes(
+        bytes: Vec<u8>,
+        document_id: impl Into<String>,
+        filename: Option<String>,
+    ) -> Self {
+        PdfInput::Bytes {
+            bytes,
+            document_id: Some(document_id.into()),
+            filename,
+        }
+    }
+
+    /// Create a `PdfInput` from a URL.
+    ///
+    /// This is a recommended portable constructor that works on both native and wasm32 targets.
+    /// The URL will be fetched by the pipeline when processing begins.
+    ///
+    /// # Arguments
+    /// * `url` - URL pointing to the PDF document
+    /// * `document_id` - Unique identifier for this document
+    /// * `filename` - Optional filename for reference (does not affect processing)
+    #[must_use]
+    pub fn from_url(
+        url: impl Into<String>,
+        document_id: impl Into<String>,
+        filename: Option<String>,
+    ) -> Self {
+        PdfInput::Url {
+            document_url: url.into(),
+            document_id: Some(document_id.into()),
+            filename,
+        }
+    }
+
+    /// Get the document name/filename if available.
+    ///
+    /// Returns the filename for `Bytes` and `Url` variants, or extracts the file name
+    /// from the path for the `Path` variant (native only). Returns `None` for `Path`
+    /// variant on wasm32 targets since `Path` is native-only.
+    #[must_use]
+    pub fn document_name(&self) -> Option<&str> {
+        match self {
+            PdfInput::Bytes { filename, .. } => filename.as_deref(),
+            PdfInput::Url { filename, .. } => filename.as_deref(),
+            #[cfg(not(target_arch = "wasm32"))]
+            PdfInput::Path { path, .. } => path.file_name().and_then(|n| n.to_str()),
+            #[cfg(target_arch = "wasm32")]
+            PdfInput::Path { .. } => None,
+        }
+    }
+
     /// Get the document identifier.
     #[must_use]
     pub fn document_id(&self) -> String {
