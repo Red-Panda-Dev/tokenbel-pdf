@@ -1,50 +1,57 @@
-# RUST WORKSPACE
+# TOKENBEL-PDF
 
-**Generated:** 2026-03-26
-**Commit:** 78698182
+**Generated:** 2026-03-27
+**Commit:** updated from structure audit
 **Branch:** main
 
 ## OVERVIEW
 
-`rust/` is the parent workspace for Rust code in this repo. Today it routes almost all work into `rust/pdf_pipeline/AGENTS.md`, while keeping the Rust-wide integration boundary in one place.
+PDF extraction + OCR pipeline for Belarusian financial reports. Pure Rust project — no Python, JS, or Go code. Single Cargo workspace under `pdf_pipeline/` with one unified crate `tbel-pdf`.
 
 ## STRUCTURE
 
 ```
-rust/
-└── pdf_pipeline/  # Cargo workspace for PDF extraction + OCR pipeline
+tokenbel-pdf/
+├── AGENTS.md          # This file — repo root guide
+├── ARCHITECTURE.md    # Full architecture doc (~280 lines)
+├── README.md          # Russian overview
+├── LICENSE            # MIT
+└── pdf_pipeline/      # Cargo workspace root
+    ├── Cargo.toml     # workspace: members=["tbel-pdf"]
+    ├── rust-toolchain.toml  # pinned 1.94.0
+    ├── ci-check.sh    # CI script
+    ├── AGENTS.md      # Pipeline-level guide (authoritative for Rust work)
+    ├── docs/          # CLI contract docs
+    ├── tbel-pdf/      # Unified crate (models, adapters, CLI)
+    └── tests/         # Golden files, fixtures, sample PDFs
 ```
 
 ## WHERE TO LOOK
 
-| Task                 | Location                               | Notes                           |
-| -------------------- | -------------------------------------- | ------------------------------- |
-| PDF extraction logic | `rust/pdf_pipeline/tbel-pdf-core/`     | Core crate, no I/O              |
-| OCR or file adapters | `rust/pdf_pipeline/tbel-pdf-adapters/` | External integrations           |
-| CLI behavior         | `rust/pdf_pipeline/tbel-pdf-cli/`      | Python integration entrypoint   |
-| Rust-specific rules  | `rust/pdf_pipeline/AGENTS.md`          | Commands, workspace constraints |
+| Task                 | Location                    | Notes                          |
+| -------------------- | --------------------------- | ------------------------------ |
+| PDF extraction logic | `pdf_pipeline/tbel-pdf/src/` | Core logic, no I/O in models  |
+| CLI behavior         | `pdf_pipeline/tbel-pdf/src/commands/` | Exit codes, JSON contract |
+| OCR providers        | `pdf_pipeline/tbel-pdf/src/ocr.rs` | MistralOcrProvider, mock   |
+| Test fixtures        | `pdf_pipeline/tests/`       | Golden files, manifest.json    |
+| Rust-specific rules  | `pdf_pipeline/AGENTS.md`    | Authoritative child guide      |
 
 ## CONVENTIONS
 
-- Treat `rust/pdf_pipeline/AGENTS.md` as the authoritative child guide; this parent exists to make the Rust workspace discoverable from repo root.
-- The current Rust surface is the PDF pipeline only, including shadow-mode integration with Python.
-- Keep Rust-only build, lint, and test commands scoped to `rust/pdf_pipeline/`.
+- Rust toolchain pinned to `1.94.0`.
+- Single unified crate — NOT split into core/adapters/cli.
+- `pdf_pipeline/AGENTS.md` is the authoritative guide for Rust work; this root file is a routing layer.
+- CLI is feature-gated (`cli` feature), not available on wasm32.
 
 ## ANTI-PATTERNS
 
-- Do not copy crate-level guidance from `rust/pdf_pipeline/AGENTS.md` into this parent.
-- Do not mix Python workflow rules into Rust crate docs unless they describe the integration boundary.
-- Do not add new Rust top-level guidance here unless it applies to more than one Rust workspace.
+- Do not duplicate `pdf_pipeline/AGENTS.md` content here.
+- Do not add new top-level guidance unless it applies outside `pdf_pipeline/`.
 
 ## COMMANDS
 
 ```bash
-cd rust/pdf_pipeline && cargo fmt --all
-cd rust/pdf_pipeline && cargo clippy --workspace --all-targets -- -D warnings
-cd rust/pdf_pipeline && cargo test --workspace
+cd pdf_pipeline && cargo fmt --all
+cd pdf_pipeline && cargo clippy --workspace --all-targets -- -D warnings
+cd pdf_pipeline && cargo test --workspace
 ```
-
-## NOTES
-
-- `rust/pdf_pipeline/README.md` requires Rust `1.94.0` and documents shadow-mode env vars such as `TBEL_PDF_MODE` and `TBEL_RUST_CLI_PATH`.
-- If additional Rust workspaces appear under `rust/`, expand this parent instead of duplicating repo-root guidance.
