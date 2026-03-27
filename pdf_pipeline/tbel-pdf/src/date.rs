@@ -19,8 +19,26 @@ pub enum DateError {
 const DEFAULT_MISTRAL_MODEL: &str = "mistral-large-latest";
 const DATE_PROMPT_TEMPLATE: &str = include_str!("../prompts/financial_date_extraction.txt");
 
+#[derive(Debug, Clone)]
+pub struct DateNormalizerConfig {
+    /// Optional Mistral API key. If None, date normalization falls back to rule-based logic.
+    pub api_key: Option<String>,
+    /// Model identifier for date normalization (e.g., "mistral-small-latest").
+    pub model: String,
+}
+
+impl Default for DateNormalizerConfig {
+    fn default() -> Self {
+        Self {
+            api_key: None,
+            model: DEFAULT_MISTRAL_MODEL.to_string(),
+        }
+    }
+}
+
 /// Trait for date header normalization.
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait DateNormalizer: Send + Sync {
     /// Normalize a date header to MM.YYYY format.
     ///
@@ -48,6 +66,7 @@ impl RuleBasedDateNormalizer {
     /// - `MISTRAL_API_KEY`
     /// - `MISTRAL_DATE_MODEL` (defaults to `mistral-large-latest`)
     #[must_use]
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn new() -> Self {
         let api_key = std::env::var("MISTRAL_API_KEY")
             .ok()
@@ -57,13 +76,35 @@ impl RuleBasedDateNormalizer {
             .filter(|value| !value.trim().is_empty())
             .unwrap_or_else(|| DEFAULT_MISTRAL_MODEL.to_string());
 
+        Self::with_config(DateNormalizerConfig { api_key, model })
+    }
+
+    #[must_use]
+    pub fn with_config(config: DateNormalizerConfig) -> Self {
+        let api_key = config.api_key.and_then(|value| {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        });
+        let model = if config.model.trim().is_empty() {
+            DEFAULT_MISTRAL_MODEL.to_string()
+        } else {
+            config.model
+        };
+
         Self::with_optional_key(api_key, model)
     }
 
     /// Create a date normalizer with explicit API key and model.
     #[must_use]
     pub fn with_model(api_key: impl Into<String>, model: impl Into<String>) -> Self {
-        Self::with_optional_key(Some(api_key.into()), model.into())
+        Self::with_config(DateNormalizerConfig {
+            api_key: Some(api_key.into()),
+            model: model.into(),
+        })
     }
 
     #[cfg(test)]
@@ -203,11 +244,20 @@ impl RuleBasedDateNormalizer {
 
 impl Default for RuleBasedDateNormalizer {
     fn default() -> Self {
-        Self::new()
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            return Self::new();
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            Self::with_config(DateNormalizerConfig::default())
+        }
     }
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl DateNormalizer for RuleBasedDateNormalizer {
     async fn normalize_header(&self, header: &str) -> Result<String, DateError> {
         let header = header.trim();
@@ -268,7 +318,8 @@ impl Default for StubDateNormalizer {
     }
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl DateNormalizer for StubDateNormalizer {
     async fn normalize_header(&self, header: &str) -> Result<String, DateError> {
         Ok(self

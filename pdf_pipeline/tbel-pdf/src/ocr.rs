@@ -12,6 +12,21 @@ use std::path::Path;
 
 use crate::models::{OcrOutput, PdfInput};
 
+const DEFAULT_MISTRAL_OCR_MODEL: &str = "mistral-ocr-latest";
+
+/// Explicit OCR provider configuration for portable construction.
+///
+/// For wasm32, pass `PdfInput::Bytes` or `PdfInput::Url` when calling OCR.
+#[derive(Debug, Clone)]
+pub struct OcrProviderConfig {
+    /// Mistral API key for OCR requests.
+    pub api_key: String,
+    /// Model identifier (e.g., "mistral-ocr-latest").
+    pub model: String,
+    /// Optional override for document URL base (useful for testing or custom endpoints).
+    pub document_url_override: Option<String>,
+}
+
 /// Additional image data from OCR processing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImageData {
@@ -42,7 +57,8 @@ pub enum ProviderError {
 /// Implementations handle the specifics of calling external OCR services
 /// (Mistral, Google Cloud Vision, AWS Textract, etc.). The trait enables
 /// dependency injection for testing with deterministic doubles.
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait OcrProvider: Send + Sync {
     /// Perform OCR on the given PDF input.
     ///
@@ -90,7 +106,8 @@ impl Default for MockOcrProvider {
     }
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl OcrProvider for MockOcrProvider {
     async fn acquire_ocr(&self, input: PdfInput) -> Result<OcrOutput, ProviderError> {
         let doc_id = input.document_id();
@@ -105,7 +122,8 @@ impl OcrProvider for MockOcrProvider {
 /// Useful as a default implementation when OCR is not yet configured.
 pub struct StubOcrProvider;
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl OcrProvider for StubOcrProvider {
     async fn acquire_ocr(&self, input: PdfInput) -> Result<OcrOutput, ProviderError> {
         let doc_id = input.document_id();
@@ -119,34 +137,83 @@ pub struct MistralOcrProvider {
     client: reqwest::Client,
     api_key: String,
     model: String,
+    document_url_override: Option<String>,
 }
 
 impl MistralOcrProvider {
-    /// Create a Mistral OCR provider with default OCR model.
+    /// Create a Mistral OCR provider from explicit configuration.
     #[must_use]
-    pub fn new(api_key: impl Into<String>) -> Self {
-        Self::with_model(api_key, "mistral-ocr-latest")
+    pub fn with_config(config: OcrProviderConfig) -> Self {
+        let model = if config.model.trim().is_empty() {
+            DEFAULT_MISTRAL_OCR_MODEL.to_string()
+        } else {
+            config.model
+        };
+
+        Self {
+            client: reqwest::Client::new(),
+            api_key: config.api_key,
+            model,
+            document_url_override: config
+                .document_url_override
+                .and_then(|url| (!url.trim().is_empty()).then_some(url)),
+        }
+    }
+
+    /// Create a native provider from environment variables.
+    ///
+    /// Reads: `MISTRAL_API_KEY`, `MISTRAL_OCR_MODEL`, `TBEL_OCR_DOCUMENT_URL`.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[must_use]
+    pub fn new() -> Self {
+        let api_key = std::env::var("MISTRAL_API_KEY")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .expect("MISTRAL_API_KEY is not configured");
+        let model = std::env::var("MISTRAL_OCR_MODEL")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| DEFAULT_MISTRAL_OCR_MODEL.to_string());
+
+        Self::with_config(OcrProviderConfig {
+            api_key,
+            model,
+            document_url_override: Self::native_document_url_override(),
+        })
     }
 
     /// Create a Mistral OCR provider with an explicit model.
     #[must_use]
     pub fn with_model(api_key: impl Into<String>, model: impl Into<String>) -> Self {
-        Self {
-            client: reqwest::Client::new(),
+        Self::with_config(OcrProviderConfig {
             api_key: api_key.into(),
             model: model.into(),
-        }
+            document_url_override: None,
+        })
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn read_pdf_bytes_from_path(path: &Path) -> Result<Vec<u8>, ProviderError> {
+        std::fs::read(path).map_err(|err| {
+            ProviderError::InvalidInput(format!(
+                "Failed to read PDF from '{}': {}",
+                path.display(),
+                err
+            ))
+        })
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn read_pdf_bytes_from_path(path: &Path) -> Result<Vec<u8>, ProviderError> {
+        Err(ProviderError::InvalidInput(format!(
+            "Reading PDF from filesystem path '{}' is not supported on wasm32; use PdfInput::Bytes or PdfInput::Url",
+            path.display()
+        )))
     }
 
     fn input_pdf_bytes(&self, input: &PdfInput) -> Result<Vec<u8>, ProviderError> {
         match input {
-            PdfInput::Path { path, .. } => std::fs::read(path).map_err(|err| {
-                ProviderError::InvalidInput(format!(
-                    "Failed to read PDF from '{}': {}",
-                    path.display(),
-                    err
-                ))
-            }),
+            PdfInput::Path { path, .. } => Self::read_pdf_bytes_from_path(path),
             PdfInput::Bytes { bytes, .. } => Ok(bytes.clone()),
             PdfInput::Url { .. } => Err(ProviderError::InvalidInput(
                 "PdfInput::Url does not provide local bytes".to_string(),
@@ -235,9 +302,28 @@ impl MistralOcrProvider {
         }
         format!("data:application/pdf;base64,{}", b64)
     }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn native_document_url_override() -> Option<String> {
+        std::env::var("TBEL_OCR_DOCUMENT_URL")
+            .ok()
+            .filter(|url| !url.trim().is_empty())
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn native_document_url_override() -> Option<String> {
+        None
+    }
+
+    fn effective_document_url_override(&self) -> Option<String> {
+        self.document_url_override
+            .clone()
+            .or_else(Self::native_document_url_override)
+    }
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl OcrProvider for MistralOcrProvider {
     async fn acquire_ocr(&self, input: PdfInput) -> Result<OcrOutput, ProviderError> {
         let doc_id = input.document_id();
@@ -253,9 +339,7 @@ impl OcrProvider for MistralOcrProvider {
                     PdfInput::Url { .. } => unreachable!("handled above"),
                 };
 
-                std::env::var("TBEL_OCR_DOCUMENT_URL")
-                    .ok()
-                    .filter(|url| !url.trim().is_empty())
+                self.effective_document_url_override()
                     .unwrap_or_else(|| Self::data_url_for_pdf(&path, &bytes))
             }
         };
@@ -382,7 +466,11 @@ mod tests {
 
     #[test]
     fn test_mistral_provider_default_model() {
-        let provider = MistralOcrProvider::new("test-key");
+        let provider = MistralOcrProvider::with_config(OcrProviderConfig {
+            api_key: "test-key".to_string(),
+            model: String::new(),
+            document_url_override: None,
+        });
         assert_eq!(provider.model, "mistral-ocr-latest");
     }
 
@@ -390,6 +478,21 @@ mod tests {
     fn test_mistral_provider_with_model() {
         let provider = MistralOcrProvider::with_model("test-key", "custom-model");
         assert_eq!(provider.model, "custom-model");
+    }
+
+    #[test]
+    fn test_mistral_provider_with_config_sets_override() {
+        let provider = MistralOcrProvider::with_config(OcrProviderConfig {
+            api_key: "test-key".to_string(),
+            model: "custom-model".to_string(),
+            document_url_override: Some("https://example.com/document.pdf".to_string()),
+        });
+
+        assert_eq!(provider.model, "custom-model");
+        assert_eq!(
+            provider.document_url_override.as_deref(),
+            Some("https://example.com/document.pdf")
+        );
     }
 
     #[test]
