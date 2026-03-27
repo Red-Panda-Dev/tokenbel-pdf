@@ -3,9 +3,12 @@
 //! Provides functions to parse OCR-generated HTML fragments and extract
 //! candidate financial tables.
 
+#[cfg(not(target_arch = "wasm32"))]
 use scraper::{Html, Selector};
 
-use crate::models::{ReportTable, TableCell};
+use crate::models::ReportTable;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::models::TableCell;
 
 /// Financial table header patterns.
 const FINANCIAL_HEADER_PATTERNS: &[&str] = &[
@@ -27,6 +30,7 @@ const FINANCIAL_HEADER_PATTERNS: &[&str] = &[
 /// # Returns
 ///
 /// Vector of ReportTable structs representing candidate tables
+#[cfg(not(target_arch = "wasm32"))]
 pub fn extract_table_candidates(html: &str) -> Vec<ReportTable> {
     let document = Html::parse_document(html);
     let table_selector = Selector::parse("table").unwrap();
@@ -70,6 +74,11 @@ pub fn extract_table_candidates(html: &str) -> Vec<ReportTable> {
     }
 
     candidates
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn extract_table_candidates(_html: &str) -> Vec<ReportTable> {
+    Vec::new()
 }
 
 /// Extracts table candidates from Markdown content.

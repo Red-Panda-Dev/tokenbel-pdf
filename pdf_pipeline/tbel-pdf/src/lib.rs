@@ -2,9 +2,29 @@
 //!
 //! PDF processing pipeline for Belarusian financial reports with OCR,
 //! table extraction, and data normalization.
+//!
+//! ## Target Support
+//!
+//! - **Native (default)**: Full library + CLI support
+//! - **wasm32 (milestone 1)**: Library-only compilation support
+//!
+//! For wasm32 targets, use `PdfInput::Bytes` or `PdfInput::Url` as input.
+//! The `cli` feature is not supported on wasm32.
+//!
+//! ### wasm32 Limitations (Milestone 1)
+//!
+//! - ❌ CLI runtime not supported (`--bin tbel-pdf` with `--target wasm32-unknown-unknown`)
+//! - ❌ OCR/PDF production execution (library compiles, but runtime not tested)
+//! - ✅ Library types and models compile successfully
+//! - ✅ Can be used as a dependency in wasm projects for type definitions
+
+// Compile-time guard: prevent CLI feature on wasm32 targets
+#[cfg(all(feature = "cli", target_arch = "wasm32"))]
+compile_error!(
+    "The 'cli' feature is not supported on wasm32. Use the library target only for wasm builds."
+);
 
 pub mod cleaner;
-pub mod contract;
 pub mod date;
 pub mod error;
 pub mod markdown;
@@ -16,7 +36,14 @@ pub mod scraper;
 pub mod table_extraction;
 pub mod types;
 
+#[cfg(not(target_arch = "wasm32"))]
+pub mod contract;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod commands;
+
 pub use cleaner::{ExtractedData, FinancialRecord, Page, PdfDocument};
+#[cfg(not(target_arch = "wasm32"))]
 pub use contract::{ExitCode, FailureContract, SuccessContract};
 pub use date::{DateError, DateNormalizer, RuleBasedDateNormalizer, StubDateNormalizer};
 pub use error::{PipelineError, Result};

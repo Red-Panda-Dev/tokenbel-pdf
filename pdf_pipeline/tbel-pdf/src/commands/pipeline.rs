@@ -37,7 +37,8 @@ pub struct PipelineArgs {
 
 /// Execute the pipeline command.
 pub async fn execute(args: PipelineArgs) -> Result<i32, Box<dyn std::error::Error>> {
-    let report_type = args.report_type
+    let report_type = args
+        .report_type
         .as_ref()
         .and_then(|s| s.parse::<ReportType>().ok())
         .or_else(|| ReportType::try_from_filename(&args.input_url))
@@ -49,7 +50,8 @@ pub async fn execute(args: PipelineArgs) -> Result<i32, Box<dyn std::error::Erro
         "Starting pipeline"
     );
 
-    let output_json = args.output_json
+    let output_json = args
+        .output_json
         .unwrap_or_else(|| PathBuf::from("output.json"));
 
     let contract = SuccessContract {

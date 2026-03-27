@@ -1,7 +1,9 @@
 //! PDF input adapter using lopdf for reading PDF files.
 
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::Path;
 
+#[cfg(not(target_arch = "wasm32"))]
 use crate::error::PipelineError;
 use crate::models::PdfInput;
 
@@ -16,6 +18,7 @@ impl PdfReader {
     /// # Errors
     ///
     /// Returns an IoError if the file cannot be read.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn from_path<P: AsRef<Path>>(path: P) -> Result<PdfInput, PipelineError> {
         let path = path.as_ref();
         let bytes = std::fs::read(path).map_err(|e| PipelineError::IoError {
@@ -65,6 +68,7 @@ mod tests {
         assert_eq!(input.document_id(), "test");
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn test_from_path_unknown() {
         // Test with a non-existent path - should return error

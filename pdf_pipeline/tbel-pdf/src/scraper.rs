@@ -28,7 +28,7 @@ pub fn parse_document(content: String) -> ReportTable {
     ReportTable::new(vec!["code".to_string(), "data".to_string()], 0)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
 
