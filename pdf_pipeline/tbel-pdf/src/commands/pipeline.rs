@@ -3,7 +3,7 @@
 use clap::Args;
 use std::path::PathBuf;
 
-use crate::contract::{ExitCode, FailureContract, SuccessContract};
+use crate::contract::{ExitCode, SuccessContract};
 use crate::error::PipelineError;
 use crate::models::ReportType;
 

@@ -2,7 +2,6 @@
 
 #[cfg(feature = "cli")]
 use clap::Parser;
-use std::process::ExitCode;
 
 #[cfg(feature = "cli")]
 fn main() -> anyhow::Result<()> {
