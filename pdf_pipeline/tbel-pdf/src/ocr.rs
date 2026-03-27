@@ -164,6 +164,7 @@ impl MistralOcrProvider {
     ///
     /// Reads: `MISTRAL_API_KEY`, `MISTRAL_OCR_MODEL`, `TBEL_OCR_DOCUMENT_URL`.
     #[cfg(not(target_arch = "wasm32"))]
+    #[allow(clippy::new_without_default)]
     #[must_use]
     pub fn new() -> Self {
         let api_key = std::env::var("MISTRAL_API_KEY")
@@ -392,6 +393,7 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_mock_ocr_provider_returns_configured_response() {
         let mock =
@@ -409,6 +411,7 @@ mod tests {
         assert_eq!(output.page_count, 1);
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_mock_ocr_provider_returns_error_for_unknown_document() {
         let mock = MockOcrProvider::new();
@@ -426,6 +429,7 @@ mod tests {
             .contains("No mock response configured"));
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_stub_ocr_provider_returns_empty() {
         let stub = StubOcrProvider;

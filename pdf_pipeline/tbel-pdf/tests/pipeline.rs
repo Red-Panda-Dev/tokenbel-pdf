@@ -1,3 +1,5 @@
+#![cfg(not(target_arch = "wasm32"))]
+
 //! Integration tests for PDF pipeline.
 //!
 //! Tests compare pipeline output against golden files in tests/golden/.

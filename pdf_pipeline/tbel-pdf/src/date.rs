@@ -107,7 +107,7 @@ impl RuleBasedDateNormalizer {
         })
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(target_arch = "wasm32")))]
     fn without_api_key() -> Self {
         Self::with_optional_key(None, DEFAULT_MISTRAL_MODEL.to_string())
     }
@@ -246,7 +246,7 @@ impl Default for RuleBasedDateNormalizer {
     fn default() -> Self {
         #[cfg(not(target_arch = "wasm32"))]
         {
-            return Self::new();
+            Self::new()
         }
 
         #[cfg(target_arch = "wasm32")]
@@ -359,6 +359,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_without_api_key_returns_original_header() {
         let normalizer = RuleBasedDateNormalizer::without_api_key();
@@ -366,6 +367,7 @@ mod tests {
         assert_eq!(result, "1 октября 2024");
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_stub_normalizer_with_mapping() {
         let stub = StubDateNormalizer::new().with_mapping("test date", "12.2024");
@@ -374,6 +376,7 @@ mod tests {
         assert_eq!(result, "12.2024");
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_stub_normalizer_fallback() {
         let stub = StubDateNormalizer::new();
@@ -414,6 +417,7 @@ mod tests {
         assert!(result.is_none());
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_empty_header_returns_empty() {
         let normalizer = RuleBasedDateNormalizer::without_api_key();
@@ -421,6 +425,7 @@ mod tests {
         assert_eq!(result, "");
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_whitespace_header_trimmed() {
         let normalizer = RuleBasedDateNormalizer::without_api_key();

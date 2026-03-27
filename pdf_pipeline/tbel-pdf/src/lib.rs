@@ -11,12 +11,6 @@
 //! For wasm32 targets, use `PdfInput::Bytes` or `PdfInput::Url` as input.
 //! The `cli` feature is not supported on wasm32.
 //!
-//! ### wasm32 Limitations (Milestone 1)
-//!
-//! - ❌ CLI runtime not supported (`--bin tbel-pdf` with `--target wasm32-unknown-unknown`)
-//! - ❌ OCR/PDF production execution (library compiles, but runtime not tested)
-//! - ✅ Library types and models compile successfully
-//! - ✅ Can be used as a dependency in wasm projects for type definitions
 
 // Compile-time guard: prevent CLI feature on wasm32 targets
 #[cfg(all(feature = "cli", target_arch = "wasm32"))]
@@ -32,9 +26,13 @@ pub mod models;
 pub mod normalization;
 pub mod ocr;
 pub mod pdf;
+pub mod processing;
 pub mod scraper;
 pub mod table_extraction;
 pub mod types;
+
+#[cfg(target_arch = "wasm32")]
+pub mod wasm_bridge;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod contract;
@@ -55,6 +53,9 @@ pub use ocr::{
     ImageData, MistralOcrProvider, MockOcrProvider, OcrProvider, ProviderError, StubOcrProvider,
 };
 pub use pdf::PdfReader;
+pub use processing::{
+    ProcessingFacade, ProcessingFacadeBuilder, ProcessingOptions, ProcessingResult,
+};
 pub use scraper::{extract_company_name, extract_financial_data, parse_document};
 pub use table_extraction::{
     extract_table_candidates, extract_table_candidates_from_markdown, is_valid_financial_table,

@@ -7,7 +7,6 @@
 use scraper::{Html, Selector};
 
 use crate::models::ReportTable;
-#[cfg(not(target_arch = "wasm32"))]
 use crate::models::TableCell;
 
 /// Financial table header patterns.
@@ -76,14 +75,16 @@ pub fn extract_table_candidates(html: &str) -> Vec<ReportTable> {
     candidates
 }
 
+/// WASM-safe HTML extraction stub (returns empty - use markdown path).
 #[cfg(target_arch = "wasm32")]
 pub fn extract_table_candidates(_html: &str) -> Vec<ReportTable> {
     Vec::new()
 }
 
-/// Extracts table candidates from Markdown content.
+/// Extracts table candidates from Markdown content using pure-Rust parsing.
 ///
-/// Converts markdown tables to HTML and then uses HTML extraction.
+/// This function works on both native and wasm32 targets without requiring
+/// the scraper crate. It parses markdown tables directly into ReportTable structs.
 ///
 /// # Arguments
 ///
@@ -93,58 +94,103 @@ pub fn extract_table_candidates(_html: &str) -> Vec<ReportTable> {
 ///
 /// Vector of ReportTable structs representing candidate tables
 pub fn extract_table_candidates_from_markdown(markdown: &str) -> Vec<ReportTable> {
-    let html = markdown_to_html(markdown);
-    extract_table_candidates(&html)
+    parse_markdown_tables(markdown)
 }
 
-/// Converts a simple markdown table to HTML for parsing.
-fn markdown_to_html(markdown: &str) -> String {
-    let mut html = String::new();
+/// Parses markdown tables directly into ReportTable structs.
+///
+/// This is the wasm-safe implementation that doesn't route through HTML.
+fn parse_markdown_tables(markdown: &str) -> Vec<ReportTable> {
+    let mut tables = Vec::new();
+    let mut current_table_rows: Vec<Vec<String>> = Vec::new();
     let mut in_table = false;
 
     for line in markdown.lines() {
         let trimmed = line.trim();
-        if !trimmed.starts_with('|') {
-            if in_table {
-                html.push_str("</table>");
+
+        // Skip empty lines
+        if trimmed.is_empty() {
+            if in_table && !current_table_rows.is_empty() {
+                // End of current table
+                if let Some(table) = build_report_table_from_rows(&current_table_rows, tables.len())
+                {
+                    tables.push(table);
+                }
+                current_table_rows.clear();
                 in_table = false;
             }
             continue;
         }
 
-        if !in_table {
-            html.push_str("<table>");
+        // Check if this is a table row
+        if trimmed.starts_with('|') {
             in_table = true;
+            // Skip separator lines like |---|---|
+            if trimmed.contains("---") || trimmed.contains("---:") || trimmed.contains(":---") {
+                continue;
+            }
+
+            // Parse cells from |cell1|cell2|cell3|
+            let cells: Vec<String> = trimmed
+                .trim_matches('|')
+                .split('|')
+                .map(|s| s.trim().to_string())
+                .collect();
+
+            if !cells.is_empty() {
+                current_table_rows.push(cells);
+            }
+        } else {
+            // Not a table row
+            if in_table && !current_table_rows.is_empty() {
+                if let Some(table) = build_report_table_from_rows(&current_table_rows, tables.len())
+                {
+                    tables.push(table);
+                }
+                current_table_rows.clear();
+                in_table = false;
+            }
         }
+    }
 
-        // Skip separator lines like |---|---|
-        if trimmed.contains("---") {
-            continue;
+    // Handle table at end of content
+    if in_table && !current_table_rows.is_empty() {
+        if let Some(table) = build_report_table_from_rows(&current_table_rows, tables.len()) {
+            tables.push(table);
         }
+    }
 
-        html.push_str("<tr>");
+    tables
+}
 
-        // Parse cells from |cell1|cell2|cell3|
-        let cells: Vec<&str> = trimmed
-            .trim_matches('|')
-            .split('|')
-            .map(|s| s.trim())
+/// Builds a ReportTable from parsed markdown rows.
+fn build_report_table_from_rows(rows: &[Vec<String>], table_index: usize) -> Option<ReportTable> {
+    if rows.is_empty() {
+        return None;
+    }
+
+    let headers = rows[0].clone();
+
+    // Validate: need at least 2 columns and header should have content
+    if headers.len() < 2 {
+        return None;
+    }
+
+    let mut table = ReportTable::new(headers, table_index);
+
+    for (row_idx, row) in rows.iter().skip(1).enumerate() {
+        let cells: Vec<TableCell> = row
+            .iter()
+            .enumerate()
+            .map(|(col_idx, content)| TableCell::new(content.clone(), row_idx, col_idx))
             .collect();
 
-        for cell in cells {
-            html.push_str("<td>");
-            html.push_str(cell);
-            html.push_str("</td>");
+        if !cells.is_empty() {
+            table.rows.push(cells);
         }
-
-        html.push_str("</tr>");
     }
 
-    if in_table {
-        html.push_str("</table>");
-    }
-
-    html
+    Some(table)
 }
 
 /// Checks if a table is a valid financial report candidate.
@@ -233,15 +279,6 @@ mod tests {
 
         let candidates = extract_table_candidates(html);
         assert_eq!(candidates.len(), 2);
-    }
-
-    #[test]
-    fn test_markdown_to_html() {
-        let md = "| Header1 | Header2 |\n| --- | --- |\n| A | B |";
-        let html = markdown_to_html(md);
-        assert!(html.contains("<table>"));
-        assert!(html.contains("<tr>"));
-        assert!(html.contains("<td>"));
     }
 
     #[test]
