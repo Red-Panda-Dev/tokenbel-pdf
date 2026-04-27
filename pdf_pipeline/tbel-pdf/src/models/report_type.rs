@@ -3,56 +3,84 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-/// Supported financial report types.
+#[derive(Debug, Clone, Copy)]
+struct VariantDescriptor {
+    russian: &'static str,
+    snake: &'static str,
+    aliases: &'static [&'static str],
+}
+
+const VARIANTS: &[(ReportType, VariantDescriptor)] = &[
+    (
+        ReportType::BalanceSheet,
+        VariantDescriptor {
+            russian: "Баланс",
+            snake: "balance_sheet",
+            aliases: &["balance_sheet", "balance"],
+        },
+    ),
+    (
+        ReportType::IncomeStatement,
+        VariantDescriptor {
+            russian: "Отчёт о прибылях и убытках",
+            snake: "income_statement",
+            aliases: &["income_statement", "income"],
+        },
+    ),
+    (
+        ReportType::StatementCashFlow,
+        VariantDescriptor {
+            russian: "Отчёт о движении денежных средств",
+            snake: "statement_cash_flow",
+            aliases: &["statement_cash_flow", "cash_flow", "cashflow"],
+        },
+    ),
+    (
+        ReportType::StatementEquityChanges,
+        VariantDescriptor {
+            russian: "Отчёт об изменениях капитала",
+            snake: "statement_equity_changes",
+            aliases: &["statement_equity_changes", "equity", "capital"],
+        },
+    ),
+];
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ReportType {
-    /// Balance sheet (Баланс).
     BalanceSheet,
-    /// Income statement (Отчёт о прибылях и убытках).
     IncomeStatement,
-    /// Statement of cash flows (Отчёт о движении денежных средств).
     StatementCashFlow,
-    /// Statement of changes in equity (Отчёт об изменениях капитала).
     StatementEquityChanges,
 }
 
 impl ReportType {
-    /// Get the Russian name of the report type.
-    #[must_use]
-    pub fn russian_name(&self) -> &'static str {
-        match self {
-            Self::BalanceSheet => "Баланс",
-            Self::IncomeStatement => "Отчёт о прибылях и убытках",
-            Self::StatementCashFlow => "Отчёт о движении денежных средств",
-            Self::StatementEquityChanges => "Отчёт об изменениях капитала",
-        }
+    fn descriptor(&self) -> &'static VariantDescriptor {
+        &VARIANTS
+            .iter()
+            .find(|(v, _)| *v == *self)
+            .expect("every ReportType variant has a descriptor")
+            .1
     }
 
-    /// Try to infer report type from a filename or URL.
+    #[must_use]
+    pub fn russian_name(&self) -> &'static str {
+        self.descriptor().russian
+    }
+
     pub fn try_from_filename(filename: &str) -> Option<Self> {
         let lower = filename.to_lowercase();
-        if lower.contains("balance_sheet") || lower.contains("balance") {
-            Some(Self::BalanceSheet)
-        } else if lower.contains("income_statement") || lower.contains("income") {
-            Some(Self::IncomeStatement)
-        } else if lower.contains("cash_flow") || lower.contains("cashflow") {
-            Some(Self::StatementCashFlow)
-        } else if lower.contains("equity") || lower.contains("capital") {
-            Some(Self::StatementEquityChanges)
-        } else {
-            None
+        for (variant, desc) in VARIANTS {
+            if desc.aliases.iter().any(|a| lower.contains(a)) {
+                return Some(*variant);
+            }
         }
+        None
     }
 }
 
 impl fmt::Display for ReportType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::BalanceSheet => write!(f, "balance_sheet"),
-            Self::IncomeStatement => write!(f, "income_statement"),
-            Self::StatementCashFlow => write!(f, "statement_cash_flow"),
-            Self::StatementEquityChanges => write!(f, "statement_equity_changes"),
-        }
+        f.write_str(self.descriptor().snake)
     }
 }
 
@@ -60,13 +88,13 @@ impl std::str::FromStr for ReportType {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "balance_sheet" | "balance" => Ok(Self::BalanceSheet),
-            "income_statement" | "income" => Ok(Self::IncomeStatement),
-            "statement_cash_flow" | "cash_flow" | "cashflow" => Ok(Self::StatementCashFlow),
-            "statement_equity_changes" | "equity" | "capital" => Ok(Self::StatementEquityChanges),
-            _ => Err(format!("Unknown report type: {}", s)),
+        let lower = s.to_lowercase();
+        for (variant, desc) in VARIANTS {
+            if desc.aliases.iter().any(|a| *a == lower) {
+                return Ok(*variant);
+            }
         }
+        Err(format!("Unknown report type: {}", s))
     }
 }
 
