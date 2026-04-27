@@ -2,13 +2,13 @@
 
 ## 1. High-Level Overview
 
-This repository is a Rust library and CLI for extracting structured financial tables from Belarusian PDF reports via OCR. The system takes PDF documents (by URL or bytes), sends them through the Mistral OCR API, preprocesses the resulting markdown, extracts and validates financial tables, and produces structured JSON/XLSX output. The library also compiles to wasm32 for browser and edge deployment via `wasm_bindgen`.
+This repository is a Rust library and CLI for extracting structured financial tables from Belarusian PDF reports via OCR. The system takes PDF documents (by URL, path, or bytes), sends them through the Mistral OCR API, preprocesses the resulting markdown, extracts and validates financial tables, cleans and normalizes data into a three-column schema (code, period, period), and produces structured JSON and XLSX output. The library also compiles to wasm32 for browser and edge deployment via `wasm_bindgen`.
 
 **Observed identity and purpose:**
 - Single Cargo workspace with one crate `tbel-pdf` (`pdf_pipeline/Cargo.toml`, `pdf_pipeline/tbel-pdf/Cargo.toml`)
 - Dual compilation targets: native (CLI + library) and wasm32 (library-only) (`pdf_pipeline/tbel-pdf/Cargo.toml:15-20`)
 - Target domain: Belarusian financial statements — BalanceSheet, IncomeStatement, StatementCashFlow, StatementEquityChanges (`pdf_pipeline/tbel-pdf/src/models/report_type.rs`)
-- External OCR dependency: Mistral OCR API, abstracted behind a trait (`pdf_pipeline/tbel-pdf/src/ocr.rs`)
+- External OCR dependency: Mistral OCR API, abstracted behind the `OcrProvider` trait (`pdf_pipeline/tbel-pdf/src/ocr.rs`)
 
 **Evidence anchors:**
 - `pdf_pipeline/Cargo.toml` — workspace manifest, single member `tbel-pdf`
@@ -23,7 +23,7 @@ This repository is a Rust library and CLI for extracting structured financial ta
 ```
 ┌──────────────────────────────────────────────────────────────────┐
 │                      CLI Layer (feature-gated)                   │
-│  clap arg parsing, subcommand dispatch, exit code mapping        │
+│  clap arg parsing, subcommand dispatch, XLSX export, exit codes  │
 │  src/bin/tbel-pdf.rs, src/commands/                              │
 └──────────────────────────┬───────────────────────────────────────┘
                             │
@@ -46,7 +46,7 @@ This repository is a Rust library and CLI for extracting structured financial ta
                       ▼
 ┌──────────────────────────────────────────────────────────────────┐
 │                     Processing Pipeline                          │
-│  markdown → table_extraction → validation → normalization        │
+│  markdown → table_extraction → validation                        │
 │  src/markdown.rs, src/table_extraction.rs, src/cleaner.rs,      │
 │  src/normalization.rs, src/date.rs                               │
 └──────────────────────────┬───────────────────────────────────────┘
@@ -61,33 +61,44 @@ This repository is a Rust library and CLI for extracting structured financial ta
 │   OcrOutput,         │        │  src/ocr.rs, pdf.rs,         │
 │   ReportType         │        │  scraper.rs, date.rs         │
 └──────────────────────┘        └──────────────────────────────┘
+                            │
+                            ▼
+               ┌──────────────────────────────┐
+               │   Report Cleaning            │
+               │   (library module)           │
+               │   clean_report_tables()      │
+               │   src/report_cleaning.rs     │
+               └──────────────────────────────┘
 ```
 
 **Components:**
 
-1. **CLI Layer** — Argument parsing via clap, subcommand dispatch to `pipeline`, exit code mapping. Gated behind the `cli` feature and blocked on wasm32 by `compile_error!`. (`src/bin/`, `src/commands/`)
+1. **CLI Layer** — Argument parsing via clap, subcommand dispatch to `pipeline`, report type inference from filename, XLSX file generation, stage artifact emission, exit code mapping. Gated behind the `cli` feature and blocked on wasm32 by `compile_error!`. (`src/bin/`, `src/commands/`)
 
-2. **wasm Bridge** — JavaScript interop via `wasm_bindgen`. Exposes `process_markdown`, `process_pdf`, `validate_markdown`, and `get_supported_report_types`. Handles XLSX export internally. (`src/wasm_bridge.rs`, wasm32 only)
+2. **wasm Bridge** — JavaScript interop via `wasm_bindgen`. Exposes `process_markdown`, `process_pdf`, `validate_markdown`, and `get_supported_report_types`. Includes its own XLSX export path for wasm consumers. (`src/wasm_bridge.rs`, wasm32 only)
 
 3. **Contract Layer** — Typed JSON output schemas (`SuccessContract`, `FailureContract`) and exit codes for CLI consumers. Native only. (`src/contract/`)
 
-4. **ProcessingFacade** — The single shared orchestration entry point used by both the wasm bridge and (eventually) the CLI. Accepts `PdfInput` + `OcrProvider`, runs the full pipeline: OCR → markdown preprocessing → table extraction → validation. (`src/processing.rs`)
+4. **ProcessingFacade** — The shared orchestration entry point used by both the CLI and wasm bridge. Accepts `PdfInput` + `OcrProvider`, runs: OCR → markdown preprocessing → table extraction → validation. Returns `ProcessingResult`. (`src/processing.rs`)
 
-5. **Processing Pipeline** — Stateless transformation stages: markdown cleaning/LaTeX removal, table candidate extraction from HTML/markdown, financial table validation (min 3 cols × 10 rows), data cleaning (Belarusian number formats), normalization. (`src/markdown.rs`, `src/table_extraction.rs`, `src/cleaner.rs`, `src/normalization.rs`, `src/date.rs`)
+5. **Report Cleaning** — Library-level business logic that transforms raw `ProcessingResult` tables into cleaned three-column output (`CleanedTable`). Handles header alignment, blank column removal, code-column detection, Belarusian number parsing, and date header normalization. Shared between CLI XLSX export and integration tests. (`src/report_cleaning.rs`)
 
-6. **Domain Models** — Pure data types: `ReportTable`, `TableCell`, `PdfInput` (Url | Bytes), `OcrOutput`, `ReportType`, `CleanedReport`, `CodeValue`. Zero I/O imports. (`src/models/`)
+6. **Processing Pipeline** — Stateless transformation stages: markdown cleaning/LaTeX removal, table candidate extraction from HTML/markdown, financial table validation, data cleaning (Belarusian number formats), normalization, date normalization. (`src/markdown.rs`, `src/table_extraction.rs`, `src/cleaner.rs`, `src/normalization.rs`, `src/date.rs`)
 
-7. **Adapters** — Trait-based external service boundaries: `OcrProvider` (Mistral, Mock, Stub), `DateNormalizer`, `PdfReader`, HTML scraper. Real implementations live in top-level modules; `src/adapters/mod.rs` only re-exports for backwards compatibility. (`src/ocr.rs`, `src/pdf.rs`, `src/scraper.rs`, `src/date.rs`)
+7. **Domain Models** — Pure data types: `ReportTable`, `TableCell`, `PdfInput` (Path | Bytes | Url), `OcrOutput`, `ReportType`, `CleanedReport`, `CodeValue`. Zero I/O imports. (`src/models/`)
+
+8. **Adapters** — Trait-based external service boundaries: `OcrProvider` (Mistral, Mock, Stub), `DateNormalizer`, `PdfReader`, HTML scraper. Real implementations live in top-level modules; `src/adapters/mod.rs` only re-exports for backwards compatibility. (`src/ocr.rs`, `src/pdf.rs`, `src/scraper.rs`, `src/date.rs`)
 
 **Dependency direction:**
-- CLI → Contract → ProcessingFacade → Pipeline + Adapters → Models
-- wasm_bridge → ProcessingFacade → Pipeline + Adapters → Models
+- CLI → Contract → ProcessingFacade + ReportCleaning → Pipeline + Adapters → Models
+- wasm_bridge → ProcessingFacade + ReportCleaning → Pipeline + Adapters → Models
 - Models have zero dependency on adapters, I/O, or pipeline logic
 - CLI and wasm_bridge are mutually exclusive at compile time (feature gates + target arch)
 
 **What is intentionally NOT depended upon:**
-- Models do not import `reqwest`, `tokio`, `chrono::Local`, `scraper`, or any filesystem API
-- Library code (non-`cli` feature) does not depend on `clap`, `tracing-subscriber`, or `tokio`
+- Models do not import `reqwest`, `tokio`, `chrono::Local`, `scraper`, `lopdf`, or any filesystem API
+- Library code (non-`cli` feature) does not depend on `clap`, `tracing-subscriber`, `rust_xlsxwriter`, or `tokio`
+- `report_cleaning.rs` does not import `clap`, `rust_xlsxwriter`, or any CLI-only dependency
 - wasm32 builds exclude `chrono`, `scraper`, `lopdf` (cfg-gated in `Cargo.toml`)
 
 ## 3. Code Map (Physical)
@@ -101,45 +112,44 @@ tokenbel-pdf/
     ├── Cargo.toml               # Workspace manifest (single member: tbel-pdf)
     ├── Cargo.lock               # Locked dependencies
     ├── rust-toolchain.toml      # Pinned: 1.94.0, components: rustfmt, clippy
-    ├── ci-check.sh              # CI matrix: native lib + tests + CLI, wasm32 lib + tests + smoke
+    ├── ci-check.sh              # CI matrix: native + wasm32 + optional coverage
+    ├── coverage.sh              # Library coverage gate (cargo-llvm-cov, 70% threshold)
     ├── README.md                # Operational reference (CLI usage, env vars, report types)
     ├── AGENTS.md                # Authoritative Rust-specific guidance
     ├── docs/
     │   └── cli-contract.md      # CLI JSON contract specification
     ├── tests/                   # Workspace-level test fixtures
     │   ├── *.pdf                # Sample financial reports (3 files)
-    │   ├── fixtures/            # manifest.json + source_of_truth/ reference data
+    │   ├── fixtures/
+    │   │   ├── manifest.json    # Test fixture definitions
+    │   │   ├── ocr/             # Committed real OCR markdown (3 files)
+    │   │   └── source_of_truth/ # Reference data for regression checks
     │   ├── golden/              # Regression golden files (10 JSON+XLSX pairs)
     │   └── output/              # Test output artifacts (gitignored)
     └── tbel-pdf/                # The unified crate: library + CLI + wasm bridge
-        ├── Cargo.toml           # Crate manifest: features default=[], cli; crate-type cdylib+rlib
+        ├── Cargo.toml           # Features: default=[], cli; crate-type cdylib+rlib
         ├── src/
         │   ├── lib.rs           # Public API re-exports, compile_error! guard
-        │   ├── processing.rs    # ProcessingFacade — shared orchestration entry point
+        │   ├── processing.rs    # ProcessingFacade — shared orchestration
+        │   ├── report_cleaning.rs # Business-level table cleaning (CleanedTable, helpers)
         │   ├── wasm_bridge.rs   # wasm_bindgen exports (wasm32 only)
         │   ├── bin/
         │   │   └── tbel-pdf.rs  # CLI binary entrypoint (feature-gated)
         │   ├── commands/        # CLI subcommand dispatch (cli feature-gated)
         │   │   ├── mod.rs       # clap App/Commands definitions
-        │   │   └── pipeline.rs  # Pipeline command (currently stub)
+        │   │   └── pipeline.rs  # Full pipeline: OCR → clean → XLSX export
         │   ├── contract/        # ExitCode, ErrorCode, SuccessContract, FailureContract
-        │   │   └── mod.rs
         │   ├── models/          # Pure domain types — no I/O
         │   │   ├── mod.rs       # Re-exports all model types
-        │   │   ├── report_table.rs
-        │   │   ├── report_type.rs
-        │   │   ├── pdf_input.rs
-        │   │   ├── ocr_output.rs
-        │   │   ├── cleaned_report.rs
-        │   │   └── code_value.rs
+        │   │   ├── report_table.rs   # ReportTable, TableCell
+        │   │   ├── report_type.rs    # ReportType enum (4 variants)
+        │   │   ├── pdf_input.rs      # PdfInput (Path | Bytes | Url)
+        │   │   ├── ocr_output.rs     # OcrOutput
+        │   │   ├── cleaned_report.rs # CleanedReport, DataColumn
+        │   │   └── code_value.rs     # CodeValue
         │   ├── adapters/        # Re-exports from top-level modules (backwards compat)
-        │   │   ├── mod.rs       # pub use crate::{ocr, pdf, date, table_extraction}
-        │   │   ├── ocr.rs       # Adapter submodule mirror
-        │   │   ├── pdf.rs       # Adapter submodule mirror
-        │   │   ├── scraper.rs   # Adapter submodule mirror
-        │   │   ├── date.rs      # Adapter submodule mirror
-        │   │   └── markdown.rs  # Adapter submodule mirror
-        │   ├── ocr.rs           # OcrProvider trait, MistralOcrProvider, Mock/Stub providers
+        │   │   └── mod.rs       # pub use crate::{ocr, pdf, date, ...}
+        │   ├── ocr.rs           # OcrProvider trait, MistralOcrProvider, Mock/Stub
         │   ├── pdf.rs           # PdfReader
         │   ├── scraper.rs       # HTML parsing, company name extraction
         │   ├── date.rs          # DateNormalizer trait, RuleBasedDateNormalizer
@@ -151,7 +161,7 @@ tokenbel-pdf/
         │   └── types.rs         # PdfError
         ├── prompts/             # Mistral prompt templates
         └── tests/
-            ├── pipeline.rs      # Integration tests
+            ├── pipeline.rs      # Integration tests (real OCR fixture tests)
             └── worker_smoke.mjs # Node.js wasm smoke test runner
 ```
 
@@ -159,9 +169,10 @@ tokenbel-pdf/
 - OCR provider implementations → `pdf_pipeline/tbel-pdf/src/ocr.rs`
 - wasm JS interop → `pdf_pipeline/tbel-pdf/src/wasm_bridge.rs`
 - Shared processing orchestration → `pdf_pipeline/tbel-pdf/src/processing.rs`
+- Table cleaning and normalization → `pdf_pipeline/tbel-pdf/src/report_cleaning.rs`
 - Table extraction logic → `pdf_pipeline/tbel-pdf/src/table_extraction.rs`
 - Date normalization → `pdf_pipeline/tbel-pdf/src/date.rs`
-- CLI argument handling → `pdf_pipeline/tbel-pdf/src/commands/`
+- CLI argument handling and pipeline command → `pdf_pipeline/tbel-pdf/src/commands/`
 - JSON output schemas → `pdf_pipeline/tbel-pdf/src/contract/mod.rs`
 - Domain types → `pdf_pipeline/tbel-pdf/src/models/`
 - Test fixtures → `pdf_pipeline/tests/fixtures/`
@@ -173,7 +184,7 @@ tokenbel-pdf/
 ### Native CLI path
 
 ```
-CLI args (--input-url, --report-type)
+CLI args (--input-url, --report-type, --emit-stage-artifacts)
     │
     ▼
 src/bin/tbel-pdf.rs
@@ -183,17 +194,37 @@ src/bin/tbel-pdf.rs
     │
     ▼
 src/commands/pipeline.rs — execute()
-  - Infer ReportType from filename if not provided
-  - Currently a stub: constructs placeholder SuccessContract
-  - (Inferred) Full pipeline orchestration pending
+  1. Resolve ReportType (from --report-type flag or URL filename heuristic)
+  2. Read MISTRAL_API_KEY env var
+  3. Construct MistralOcrProvider
+  4. Call ocr_provider.acquire_ocr(input) → OcrOutput
     │
     ▼
-stdout / --emit-contract file
+ProcessingFacade::process_markdown(ocr_output.markdown)
+  5. clean_latex_from_markdown — remove LaTeX artifacts
+  6. preprocess_markdown — normalize structure, merge tables
+  7. extract_table_candidates_from_markdown — parse markdown tables
+  8. filter is_valid_financial_table — keep only valid financial tables
+  → ProcessingResult { document_id, report_type, tables, page_count }
+    │
+    ▼
+clean_report_tables(&result) → Vec<CleanedTable>
+  9. Per-table: find header row, remove blank columns, align code column
+  10. Extract original date headers, normalize to MM.YYYY format
+  11. Filter rows to 2-3 digit numeric codes only
+  12. Parse Belarusian number formats (space thousands, comma decimals, parenthesized negatives)
+  → CleanedTable { headers: [code, MM.YYYY, MM.YYYY], rows }
+    │
+    ▼
+tables_to_xlsx() → <stem>_output.xlsx
+  13. Merge all cleaned tables into one continuous sheet with single header row
+  14. Optional: write stage artifacts (ocr_output.md, tables.json, meta.json)
+  15. Emit SuccessContract JSON to stdout / --emit-contract file
 ```
 
-**Status:** The CLI pipeline command is `Observed` as a stub in `src/commands/pipeline.rs:39-75`. It does not yet call `ProcessingFacade`.
+**Status:** Fully `Observed` in `src/commands/pipeline.rs` and `src/processing.rs`.
 
-### wasm bridge path (fully wired)
+### wasm bridge path
 
 ```
 JS caller → wasm_bridge exports (process_markdown | process_pdf)
@@ -201,15 +232,9 @@ JS caller → wasm_bridge exports (process_markdown | process_pdf)
     ▼
 wasm_bridge.rs: decode_request → parse_report_type
     │
-    ▼
-ProcessingFacadeBuilder → build ProcessingFacade
-    │
     ├─ process_markdown path:
     │    ProcessingFacade::process_markdown(markdown, page_count, doc_id)
-    │      → clean_latex_from_markdown
-    │      → preprocess_markdown
-    │      → extract_table_candidates_from_markdown
-    │      → filter is_valid_financial_table
+    │      → clean_latex → preprocess → extract → validate
     │
     └─ process_pdf path:
          ProcessingFacade::process(PdfInput, &dyn OcrProvider)
@@ -217,7 +242,9 @@ ProcessingFacadeBuilder → build ProcessingFacade
            → process_ocr_output (same pipeline as above)
     │
     ▼
-ProcessingResult → JsSuccess (with optional XLSX via rust_xlsxwriter)
+ProcessingResult → success_from_result()
+  → Optional XLSX export (rust_xlsxwriter with wasm feature)
+  → JsSuccess { document_id, report_type, tables, xlsx? }
     │
     ▼
 serde_wasm_bindgen → JsValue → Promise resolved to JS caller
@@ -232,7 +259,7 @@ OcrOutput (markdown)
     │
     ▼ 1. clean_latex_from_markdown — remove LaTeX artifacts
     ▼ 2. preprocess_markdown — normalize structure, merge tables
-    ▼ 3. extract_table_candidates_from_markdown — parse HTML/Markdown tables
+    ▼ 3. extract_table_candidates_from_markdown — parse markdown tables
     ▼ 4. is_valid_financial_table — filter (min 3 cols × 10 rows)
     ▼ 5. ReportType detection (filename heuristic or explicit)
     │
@@ -244,19 +271,23 @@ ProcessingResult { document_id, report_type, tables, page_count }
 
 - **Rule:** Domain models in `src/models/` must not perform I/O
   - **Rationale:** Enables pure unit testing and clear separation of data contracts from infrastructure.
-  - **Enforcement / Signals (Observed):** Models only contain data structures with `Serialize`/`Deserialize`; no `reqwest`, `tokio`, `scraper`, `lopdf`, or filesystem imports. All model submodules are declared `mod` (private) in `models/mod.rs` with `pub use` re-exports.
+  - **Enforcement / Signals (Observed):** Models only import `serde`, `chrono::NaiveDate`, and std; no `reqwest`, `tokio`, `scraper`, `lopdf`, or filesystem imports. All model submodules are declared `mod` (private) with `pub use` re-exports in `models/mod.rs`.
 
 - **Rule:** CLI feature is gated and blocked on wasm32
-  - **Rationale:** The crate compiles as both a native binary and a wasm32 library; CLI dependencies (`clap`, `tokio`, `tracing-subscriber`) are unnecessary and unresolvable on wasm32.
+  - **Rationale:** The crate compiles as both a native binary and a wasm32 library; CLI dependencies are unnecessary and unresolvable on wasm32.
   - **Enforcement / Signals (Observed):** `compile_error!` guard in `src/lib.rs:16-19`; `cli` feature in `Cargo.toml:20` with optional native-only dependencies; `[[bin]]` entry requires `cli` feature.
 
 - **Rule:** ProcessingFacade is the single shared orchestration entry point
   - **Rationale:** Prevents duplicated pipeline logic between CLI and wasm bridge.
-  - **Enforcement / Signals (Observed):** Both `src/wasm_bridge.rs` and `src/processing.rs` itself use `ProcessingFacade`/`ProcessingFacadeBuilder`. The CLI pipeline command does not yet use it (`Inferred` pending integration).
+  - **Enforcement / Signals (Observed):** Both `src/wasm_bridge.rs` and `src/commands/pipeline.rs` use `ProcessingFacade`/`ProcessingFacadeBuilder` for table extraction.
 
 - **Rule:** All external HTTP calls go through adapter traits
   - **Rationale:** Enables mocking, provider swapping, and offline testing without changing business logic.
   - **Enforcement / Signals (Observed):** `OcrProvider` trait in `src/ocr.rs` with `async fn acquire_ocr`; `MockOcrProvider` and `StubOcrProvider` test doubles defined alongside production `MistralOcrProvider`.
+
+- **Rule:** Report cleaning is a library module with no CLI-only dependencies
+  - **Rationale:** `report_cleaning.rs` must be usable from integration tests without enabling the `cli` feature.
+  - **Enforcement / Signals (Observed):** `src/report_cleaning.rs` imports only `crate::processing::ProcessingResult` and `crate::models::*`; no `clap`, `rust_xlsxwriter`, or filesystem imports. Re-exported from `lib.rs`.
 
 - **Rule:** OCR and date normalizer must have offline test doubles
   - **Rationale:** Enables CI and local testing without `MISTRAL_API_KEY` or network access.
@@ -274,17 +305,17 @@ ProcessingResult { document_id, report_type, tables, page_count }
   - **Rationale:** Unified crate design simplifies feature gating, cross-target compilation, and dependency management.
   - **Enforcement / Signals (Inferred):** Stated in `AGENTS.md` change rules; workspace has single member `tbel-pdf`.
 
-- **Rule:** JSON contract schema changes must update contract tests
-  - **Rationale:** External callers (Python integration, CI) depend on stable output format.
-  - **Enforcement / Signals (Inferred):** `SuccessContract` and `FailureContract` have serialization round-trip tests in `src/contract/mod.rs`; `docs/cli-contract.md` defines the stable schema.
+- **Rule:** JSON contract schema changes must update contract tests and documentation
+  - **Rationale:** External callers depend on stable output format.
+  - **Enforcement / Signals (Observed):** `SuccessContract` and `FailureContract` have serialization round-trip tests in `src/contract/mod.rs`; `docs/cli-contract.md` defines the stable schema.
 
 - **Rule:** wasm32 builds exclude native-only dependencies
   - **Rationale:** `chrono`, `scraper`, `lopdf`, and `tokio` cannot compile or are unnecessary on wasm32.
   - **Enforcement / Signals (Observed):** `Cargo.toml` uses `cfg(not(target_arch = "wasm32"))` and `cfg(target_arch = "wasm32")` for dependency and module gating.
 
 - **Rule:** `src/adapters/mod.rs` only re-exports; canonical implementations are top-level modules
-  - **Rationale:** Historical backwards compatibility; the real adapter code lives in `src/ocr.rs`, `src/pdf.rs`, etc.
-  - **Enforcement / Signals (Observed):** `src/adapters/mod.rs` contains only `pub use crate::...` statements; adapter submodules exist as mirrors.
+  - **Rationale:** Historical backwards compatibility; the real adapter code lives in `src/ocr.rs`, `src/pdf.rs`, etc. Orphaned submodule files exist in `src/adapters/` but are not compiled.
+  - **Enforcement / Signals (Observed):** `src/adapters/mod.rs` contains only `pub use crate::...` statements with no `mod` declarations, so sibling files are not compiled.
 
 ## 6. Documentation Strategy
 
