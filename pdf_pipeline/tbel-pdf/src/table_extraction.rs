@@ -169,7 +169,8 @@ fn build_report_table_from_rows(rows: &[Vec<String>], table_index: usize) -> Opt
         return None;
     }
 
-    let headers = rows[0].clone();
+    let header_row_index = find_financial_header_row(rows).unwrap_or(0);
+    let headers = rows[header_row_index].clone();
 
     // Validate: need at least 2 columns and header should have content
     if headers.len() < 2 {
@@ -178,7 +179,7 @@ fn build_report_table_from_rows(rows: &[Vec<String>], table_index: usize) -> Opt
 
     let mut table = ReportTable::new(headers, table_index);
 
-    for (row_idx, row) in rows.iter().skip(1).enumerate() {
+    for (row_idx, row) in rows.iter().skip(header_row_index + 1).enumerate() {
         let cells: Vec<TableCell> = row
             .iter()
             .enumerate()
@@ -191,6 +192,16 @@ fn build_report_table_from_rows(rows: &[Vec<String>], table_index: usize) -> Opt
     }
 
     Some(table)
+}
+
+fn find_financial_header_row(rows: &[Vec<String>]) -> Option<usize> {
+    rows.iter().position(|row| {
+        let row_text = row.join(" ");
+        row_text.contains("Код строки")
+            && (row_text.contains("Наименование показателей")
+                || row_text.contains("Активы")
+                || row_text.contains("Собственный капитал и обязательства"))
+    })
 }
 
 /// Checks if a table is a valid financial report candidate.
@@ -318,6 +329,27 @@ mod tests {
             .filter(|t| is_valid_financial_table(t))
             .count();
         assert_eq!(valid_count, 1);
+    }
+
+    #[test]
+    fn test_extract_table_candidates_from_markdown_skips_metadata_before_financial_header() {
+        let md = r#"| Организация | | Test Co | | |
+| --- | --- | --- | --- | --- |
+| Учетный номер плательщика | 123 | | | |
+| Наименование показателей | | Код строки | За январь - декабрь 2025 года | За январь - декабрь 2024 года |
+| 1 | | 2 | 3 | 4 |
+| Выручка от реализации продукции, товаров, работ, услуг | | 010 | 5 622 | 6 042 |
+| Себестоимость реализованной продукции, товаров, работ, услуг | | 020 | (4 218) | (4 213) |
+| Валовая прибыль | | 030 | 1 404 | 1 829 |"#;
+
+        let candidates = extract_table_candidates_from_markdown(md);
+        assert_eq!(candidates.len(), 1);
+
+        let table = &candidates[0];
+        assert!(is_valid_financial_table(table));
+        assert_eq!(table.headers[0], "Наименование показателей");
+        assert_eq!(table.rows[1][2].content, "010");
+        assert_eq!(table.rows[3][2].content, "030");
     }
 
     #[test]
