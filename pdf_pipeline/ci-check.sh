@@ -6,6 +6,7 @@ set -euo pipefail
 # 2) Native library tests: cargo test -p tbel-pdf --lib
 # 3) Native CLI check: cargo check -p tbel-pdf --features cli --bin tbel-pdf
 # 4) Wasm library check: cargo check -p tbel-pdf --lib --target wasm32-unknown-unknown
+# 5) Optional library coverage: cargo llvm-cov -p tbel-pdf --lib --fail-under-lines 70
 #
 # Explicitly unsupported target/feature pair:
 # - `--features cli` with `--target wasm32-unknown-unknown` is intentionally not run,
@@ -41,6 +42,14 @@ if command -v wasm-bindgen >/dev/null 2>&1 && command -v node >/dev/null 2>&1; t
   node tbel-pdf/tests/worker_smoke.mjs "$TMP_DIR/pkg"
 else
   echo "=== Wasm Worker Smoke Test Skipped (requires wasm-bindgen and node) ==="
+fi
+
+if command -v cargo-llvm-cov >/dev/null 2>&1; then
+  echo "=== Library Coverage ==="
+  cargo llvm-cov clean --workspace
+  cargo llvm-cov -p tbel-pdf --lib --fail-under-lines 70
+else
+  echo "=== Library Coverage Skipped (requires cargo-llvm-cov) ==="
 fi
 
 echo "=== All checks passed! ==="
