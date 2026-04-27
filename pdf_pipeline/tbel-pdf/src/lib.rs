@@ -27,6 +27,7 @@ pub mod normalization;
 pub mod ocr;
 pub mod pdf;
 pub mod processing;
+pub mod report_cleaning;
 pub mod scraper;
 pub mod table_extraction;
 pub mod types;
@@ -55,6 +56,9 @@ pub use ocr::{
 pub use pdf::PdfReader;
 pub use processing::{
     ProcessingFacade, ProcessingFacadeBuilder, ProcessingOptions, ProcessingResult,
+};
+pub use report_cleaning::{
+    clean_report_tables, normalize_date_header, parse_belarusian_integer, CleanedTable,
 };
 pub use scraper::{extract_company_name, extract_financial_data, parse_document};
 pub use table_extraction::{
