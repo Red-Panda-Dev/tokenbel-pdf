@@ -1,88 +1,94 @@
-# PDF Pipeline (Rust)
+# AGENTS.md
 
-**Generated:** 2026-03-27
-**Commit:** updated from structure audit
-**Branch:** main
+## Scope
 
-## OVERVIEW
+This subtree is the Cargo workspace root. All Rust code in the repository lives here. This file is the authoritative guide for Rust-specific work; the root `AGENTS.md` only routes into it.
 
-Rust crate for PDF extraction and OCR-backed report normalization. This subtree is the authoritative guide for Rust-specific work; the root `AGENTS.md` only routes into it.
-
-## STRUCTURE
+## What lives here
 
 ```text
 pdf_pipeline/
-├── tbel-pdf/            # Unified crate with models, adapters, CLI
+├── Cargo.toml                   # Workspace manifest (single member: tbel-pdf)
+├── rust-toolchain.toml          # Pinned toolchain: 1.94.0
+├── ci-check.sh                  # Full CI matrix (native + wasm32 checks + smoke test)
+├── README.md                    # Operational reference (CLI usage, report types, env vars)
+├── docs/
+│   └── cli-contract.md          # JSON contract specification for CLI output
+├── tbel-pdf/                    # The unified crate
+│   ├── Cargo.toml               # Crate manifest (features: default=[], cli)
 │   ├── src/
-│   │   ├── models/      # Domain types (ReportTable, PdfInput, etc.)
-│   │   ├── adapters/    # Re-exports from parent modules
-│   │   ├── commands/    # CLI commands (feature-gated)
-│   │   ├── contract/    # CLI JSON contract types
-│   │   ├── date.rs      # Date normalization
-│   │   ├── markdown.rs  # Markdown preprocessing
-│   │   ├── ocr.rs       # OCR providers
-│   │   ├── pdf.rs       # PDF reader
-│   │   ├── scraper.rs   # HTML scraping
-│   │   ├── table_extraction.rs  # HTML/Markdown table parsing
-│   │   ├── normalization.rs     # Code normalization
-│   │   ├── cleaner.rs           # Report cleaning
-│   │   ├── types.rs             # Shared type aliases
-│   │   ├── error.rs             # Error types
-│   │   └── lib.rs               # Public API re-exports
-│   ├── src/bin/tbel-pdf.rs      # CLI binary entrypoint
-│   ├── tests/           # Integration tests
-│   └── prompts/         # Mistral prompt templates
-├── tests/               # Golden files, fixtures, sample PDFs
-│   ├── fixtures/manifest.json
-│   └── golden/          # *.json + *.xlsx regression outputs
-└── docs/                # Pipeline documentation
+│   │   ├── lib.rs               # Public API re-exports
+│   │   ├── processing.rs        # ProcessingFacade — shared entry for CLI + wasm
+│   │   ├── wasm_bridge.rs       # wasm_bindgen exports (only compiled on wasm32)
+│   │   ├── models/              # Pure domain types, zero I/O
+│   │   │   ├── report_table.rs  # ReportTable, TableCell
+│   │   │   ├── report_type.rs   # ReportType enum (4 variants)
+│   │   │   ├── pdf_input.rs     # PdfInput (Url | Bytes)
+│   │   │   ├── ocr_output.rs    # OcrOutput
+│   │   │   ├── cleaned_report.rs # CleanedReport, DataColumn
+│   │   │   └── code_value.rs    # CodeValue
+│   │   ├── adapters/            # Re-exports + parallel adapter submodules
+│   │   │   └── mod.rs           # Re-exports from top-level modules (backwards compat)
+│   │   ├── commands/            # CLI subcommand dispatch (feature-gated)
+│   │   ├── contract/            # ExitCode, ErrorCode, SuccessContract, FailureContract
+│   │   ├── bin/tbel-pdf.rs      # CLI binary entrypoint (feature-gated)
+│   │   ├── ocr.rs               # OcrProvider trait, MistralOcrProvider, Mock/Stub providers
+│   │   ├── pdf.rs               # PdfReader
+│   │   ├── scraper.rs           # HTML parsing, company name extraction
+│   │   ├── date.rs              # DateNormalizer trait, RuleBasedDateNormalizer
+│   │   ├── markdown.rs          # Markdown preprocessing, LaTeX cleaning, table merging
+│   │   ├── table_extraction.rs  # Table candidate extraction, financial table validation
+│   │   ├── cleaner.rs           # DataFrameCleaner, Belarusian number format parsing
+│   │   ├── normalization.rs     # Table structure normalization
+│   │   ├── error.rs             # PipelineError, Result
+│   │   └── types.rs             # PdfError
+│   ├── prompts/                 # Mistral prompt templates
+│   └── tests/
+│       ├── pipeline.rs          # Integration tests
+│       └── worker_smoke.mjs     # Node.js wasm smoke test runner
+└── tests/                       # Workspace-level test fixtures
+    ├── *.pdf                    # Sample financial reports (3 files)
+    ├── fixtures/
+    │   ├── manifest.json        # Test fixture definitions
+    │   └── source_of_truth/     # Reference data for regression checks
+    ├── golden/                  # Regression baselines (10 JSON+XLSX pairs)
+    └── output/                  # Test output artifacts (gitignored)
 ```
 
-## WHERE TO LOOK
+## Local boundaries and invariants
 
-| Task                   | Location                           | Notes                                        |
-| ---------------------- | ---------------------------------- | -------------------------------------------- |
-| Domain models          | `tbel-pdf/src/models/`             | ReportTable, PdfInput, OcrOutput, etc.       |
-| OCR providers          | `tbel-pdf/src/ocr.rs`              | MistralOcrProvider, MockOcrProvider          |
-| Date normalization     | `tbel-pdf/src/date.rs`             | RuleBasedDateNormalizer                      |
-| Table extraction       | `tbel-pdf/src/table_extraction.rs` | HTML/Markdown table parsing                  |
-| Markdown preprocessing | `tbel-pdf/src/markdown.rs`         | LaTeX cleaning, table merging                |
-| CLI behavior           | `tbel-pdf/src/commands/`           | Exit codes, command surface, contract output |
-| JSON contract types    | `tbel-pdf/src/contract/`           | ExitCode, ErrorCode, SuccessContract, FailureContract |
-| Regression assets      | `tests/`                           | Golden files and integration fixtures        |
-| Public API surface     | `tbel-pdf/src/lib.rs`              | Re-exports of models, adapters, utilities    |
+- **Models are pure**: `src/models/` must not import `reqwest`, `tokio`, `chrono::Local`, or any filesystem API. Only `serde`, `chrono::NaiveDate`, and std.
+- **Adapter trait boundary**: All external HTTP goes through `OcrProvider` trait. No direct `reqwest` calls outside `ocr.rs`.
+- **CLI ↔ Library split**: `cli` feature is gated with `compile_error!` on wasm32. Library code must not depend on `clap` or `tracing-subscriber`.
+- **ProcessingFacade** is the single shared entry point. CLI commands and `wasm_bridge.rs` both call it. Do not bypass it with ad-hoc orchestration.
+- **Adapters directory**: `src/adapters/mod.rs` only re-exports from top-level modules. Real adapter submodules (`adapters/ocr.rs`, `adapters/pdf.rs`, etc.) exist as parallel files but are currently secondary — the canonical implementations are the top-level modules (`ocr.rs`, `pdf.rs`, etc.).
+- **Golden files** in `tests/golden/` are regression baselines. Each test case has a `.json` + `.xlsx` pair. Update intentionally when pipeline output legitimately changes.
+- **Exit codes**: 0 = success, 1 = usage error, 2 = pipeline error, 3 = provider error. Defined in `src/contract/`.
 
-## CONVENTIONS
+## Safe change rules
 
-- Rust toolchain is pinned to `1.94.0` (`rust-toolchain.toml`).
-- Single crate with modules; no separate core/adapters crates.
-- Models in `src/models/` are pure domain types with no I/O.
-- Adapters (OCR, PDF, HTTP) handle all external I/O.
-- CLI is feature-gated behind `cli` feature — not compiled on wasm32.
-- wasm32 target: library only (`compile_error!` guard prevents cli+wasm32).
-- Respect CLI exit codes: `0` success, `1` usage, `2` pipeline, `3` provider.
-- Use `MockOcrProvider` and `StubDateNormalizer` for unit testing.
-- Testing: `rstest` for parametrized tests, golden files for regression.
+- Adding a new report type: add variant to `ReportType` in `models/report_type.rs`, update `FromStr`, add validation rules in `cleaner.rs`, add golden test fixture.
+- Adding an OCR provider: implement `OcrProvider` trait in `ocr.rs`, add provider config, update `ProcessingFacade` or CLI as needed.
+- Changing JSON contract: update `src/contract/mod.rs` and `docs/cli-contract.md` simultaneously. Contract changes are breaking for external callers.
+- Adding wasm exports: add functions in `wasm_bridge.rs` with `#[wasm_bindgen]`. All new exports must handle `JsValue` serialization via `serde_wasm_bindgen`.
 
-## ANTI-PATTERNS
-
-- Do not add I/O operations to model types.
-- Do not change JSON contract without updating contract module tests.
-- Do not add Rust-wide rules here that belong in root `AGENTS.md`.
-- Do not split the crate into core/adapters/cli — it's unified by design.
-
-## COMMANDS
+## Validation
 
 ```bash
-cargo fmt --all
+cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo run -p tbel-pdf --features cli -- --help
+bash ci-check.sh
 ```
 
-## NOTES
+`ci-check.sh` runs: native lib check, native tests, native CLI check, wasm32 lib check, wasm32 test compile check, and optionally a wasm smoke test (requires `wasm-bindgen` + `node`).
 
-- `README.md` is the detailed operational reference for report types and fixtures.
-- Golden files in `tests/golden/` are used for regression testing.
-- Test fixtures are defined in `tests/fixtures/manifest.json`.
-- CI runs via `ci-check.sh` (native lib+CLI check + wasm32 lib check).
+## Nearby docs
+
+| Doc | Path |
+|-----|------|
+| Architecture decisions | `../../ARCHITECTURE.md` |
+| CLI JSON contract spec | `docs/cli-contract.md` |
+| Operational reference (CLI usage, env vars, report types) | `README.md` |
+| Root agent guide | `../../AGENTS.md` |
