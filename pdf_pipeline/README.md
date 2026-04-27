@@ -1,266 +1,167 @@
-# TBel PDF Pipeline (Rust)
+# TBel PDF Pipeline
 
-High-performance PDF processing pipeline for Belarusian financial reports. Extracts tables from PDF documents using OCR, normalizes data, and exports to XLSX.
+Cargo workspace for extracting Belarusian financial reports from PDF/OCR output and exporting normalized business tables.
 
-## Overview
+The workspace contains one Rust crate, `tbel-pdf`, compiled as both a native CLI and a wasm-compatible library.
 
-This Rust implementation processes Belarusian financial reports (Баланс, Отчёт о прибылях и убытках, etc.) with the following capabilities:
+## What The Pipeline Produces
 
-- **OCR Integration**: Mistral OCR provider with adapter boundary and mock fallback
-- **Table Extraction**: Markdown-based table candidate detection
-- **Data Normalization**: Belarusian financial format handling (spaces as thousand separators, commas as decimals, parentheses for negatives)
-- **Date Normalization**: Mistral prompt-based extraction to `MM.YYYY` with cache and safe fallback
-- **Export**: XLSX output format
+For each financial PDF, the pipeline produces rows shaped like:
 
-## Architecture
-
-```
-rust/pdf_pipeline/
-├── tbel-pdf/               # Unified crate (core + adapters + CLI)
-│   ├── src/
-│   │   ├── models/         # PdfInput, OcrOutput, ReportTable, CleanedReport, ReportType
-│   │   ├── adapters/       # OcrProvider, PdfReader, date normalization, table extraction
-│   │   ├── bin/            # CLI binary (feature-gated)
-│   │   ├── cleaner.rs      # DataFrameCleaner, numeric parsing
-│   │   ├── normalization.rs# Data transformation logic
-│   │   └── lib.rs          # Re-exports all public APIs
-│   └── prompts/            # Mistral prompt templates
-└── tests/                  # Integration tests, fixtures, golden files
+```text
+code | 01.2025 | 01.2024
+010  | 5622    | 6042
+020  | -4218   | -4213
 ```
 
-### Module Structure
+Business conventions:
 
-| Module          | Purpose                       | Key Exports                                                     |
-| --------------- | ----------------------------- | --------------------------------------------------------------- |
-| `models`        | Domain models, errors         | `PipelineError`, `CleanedReport`, `ReportType`, `PdfInput`      |
-| `adapters`      | External service abstractions | `OcrProvider`, `MistralOcrProvider`, `extract_table_candidates` |
-| `cleaner`       | Data cleaning                 | `DataFrameCleaner`, numeric parsing functions                   |
-| `normalization` | Table structure normalization | `normalize_table_structure`, `fix_table_columns`                |
-| `cli`           | CLI binary (optional feature) | `tbel-pdf` binary, `Pipeline` struct                            |
+- `code` is the statutory report line code.
+- Date columns are normalized from Russian/Belarusian headers to `MM.YYYY`.
+- Values are integer thousands of BYN.
+- Parenthesized values are negative.
+- Dash values are normalized to `0`.
+- Descriptor and OCR-only helper columns are removed.
 
 ## Supported Report Types
 
-```rust
-enum ReportType {
-    BalanceSheet,              // Баланс
-    IncomeStatement,           // Отчёт о прибылях и убытках
-    StatementCashFlow,         // Отчёт о движении денежных средств
-    StatementEquityChanges,    // Отчёт об изменениях капитала
-}
+| CLI value | Business report | Example fixture |
+| --------- | --------------- | --------------- |
+| `balance_sheet` | Бухгалтерский баланс | `file122_balance_sheet.md` |
+| `income_statement` or `income` | Отчет о прибылях и убытках | `file111_income_statement.md` |
+| `cashflow` or `cash_flow` | Отчет о движении денежных средств | `file133_cashflow.md` |
+| `statement_equity_changes` | Отчет об изменениях капитала | golden tests |
+
+## Pipeline Stages
+
+1. OCR the PDF with Mistral and receive markdown.
+2. Preprocess markdown by cleaning LaTeX fragments and joining continuation lines.
+3. Extract markdown tables into `ReportTable` values.
+4. Validate financial tables using headers and code-like rows.
+5. Clean business rows by aligning the code column, removing blank OCR columns, skipping numbering rows, and normalizing dates/numbers.
+6. Export one flattened XLSX sheet and a JSON success/error contract.
+7. Optionally write stage artifacts for debugging.
+
+## OCR Edge Cases Covered
+
+The real fixtures lock down these observed OCR patterns:
+
+- Company metadata merged into the first financial table before the real header.
+- Blank OCR columns between label and code columns.
+- Numbering rows such as `1 | 2 | 3 | 4`.
+- Multi-line labels where continuation text appears outside the markdown row.
+- Continuation tables split across pages or separated by signatures.
+
+## Workspace Layout
+
+```text
+pdf_pipeline/
+├── Cargo.toml
+├── README.md
+├── ci-check.sh
+├── docs/cli-contract.md
+├── tests/
+│   ├── fixtures/ocr/       # committed real OCR markdown fixtures
+│   ├── fixtures/source_of_truth/
+│   └── golden/
+└── tbel-pdf/
+    ├── README.md
+    ├── prompts/
+    ├── src/
+    └── tests/
 ```
 
-## Prerequisites
-
-- **Rust 1.94.0** (exact version required, see `rust-toolchain.toml`)
-- `rustfmt` and `clippy` components
-
-## Installation
+## CLI Usage
 
 ```bash
-# Navigate to the Rust workspace
-cd rust/pdf_pipeline
+export MISTRAL_API_KEY="your-key"
 
-# Build all crates
-cargo build --release
-
-# The binary will be at:
-# target/release/tbel-pdf
+cargo run --features cli -- pipeline \
+  --input-url https://cetco-resurs.by/file111.pdf \
+  --report-type income_statement \
+  --output-xlsx file111_output.xlsx \
+  --emit-stage-artifacts \
+  --emit-contract file111_contract.json
 ```
 
-### Development Build
+Arguments:
 
-```bash
-# Debug build with symbols
-cargo build
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `--input-url <URL_OR_PATH>` | yes | PDF URL or path used as OCR input |
+| `--report-type <TYPE>` | no | Explicit report type; inferred from filename when omitted |
+| `--output-xlsx <PATH>` | no | XLSX destination; defaults to `<input_stem>_output.xlsx` |
+| `--emit-stage-artifacts` | no | Writes OCR markdown, extracted tables, cleaned tables, and metadata |
+| `--emit-contract <PATH>` | no | Writes the JSON contract to a file; contract is also printed |
 
-# Run clippy lints
-cargo clippy --all-targets --all-features -- -D warnings
+## Stage Artifacts
 
-# Format code
-cargo fmt
+With `--emit-stage-artifacts`, the CLI writes `<input_stem>_artifacts/`:
 
-# Run tests
-cargo test --all
-```
-
-## Usage
-
-### Basic Pipeline
-
-```bash
-# Process a PDF directly from URL (no local download)
-tbel-pdf pipeline --input-url https://example.com/2025.09_balance_sheet_company.pdf
-```
-
-The CLI always writes `<url_file_stem>_output.xlsx` into the current directory.
-
-### CLI Arguments
-
-| Argument                 | Required | Description                                          |
-| ------------------------ | -------- | ---------------------------------------------------- |
-| `--input-url <URL>`      | Yes      | Input PDF URL passed directly to Mistral OCR         |
-| `--emit-contract <PATH>` | No       | Write JSON contract to file (also printed to stdout) |
-| `--emit-stage-artifacts` | No       | Emit intermediate files for debugging                |
-
-Report type is inferred from the URL filename and must contain one of:
-
-- `balance_sheet`
-- `income_statement`
-- `statement_cash_flow`
-- `statement_equity_changes`
-
-### Runtime Configuration
-
-```bash
-# Required for real OCR and AI date normalization
-export MISTRAL_API_KEY=<your_key>
-
-# Optional overrides
-export MISTRAL_OCR_MODEL=mistral-ocr-latest
-export MISTRAL_DATE_MODEL=mistral-large-latest
-
-```
-
-Notes:
-
-- If `MISTRAL_API_KEY` is missing, OCR falls back to `MockOcrProvider`.
-- Date normalization also falls back safely: on model `ERROR`, invalid model output, or API failure, the original header is kept.
-- Date prompt template is loaded from `prompts/financial_date_extraction.txt`.
-- Rust passes `--input-url` directly to Mistral OCR (no local PDF download).
-
-## Exit Codes
-
-| Code | Name          | Description                                        |
-| ---- | ------------- | -------------------------------------------------- |
-| 0    | Success       | Pipeline completed successfully                    |
-| 1    | UsageError    | Invalid CLI arguments                              |
-| 2    | PipelineError | Processing error (no tables found, invalid layout) |
-| 3    | ProviderError | OCR/external service error                         |
-
-## Error Codes (JSON Contract)
-
-When `--emit-contract` is used, errors are returned as JSON:
-
-```json
-{
-    "error_code": "NoFinancialTablesFound",
-    "error_message": "No valid financial tables detected in document",
-    "document_id": "doc_123"
-}
-```
-
-**Error Codes:**
-
-- `NoFinancialTablesFound` - No tables meeting minimum dimensions (3 cols × 10 rows)
-- `UnsupportedLayout` - Table structure not recognized
-- `InvalidHeader` - Header row validation failed
-- `DimensionValidationFailed` - Table too small or malformed
-- `ProviderError` - OCR service failure
-- `ParseError` - Data parsing failure
-
-## Data Processing
-
-### Belarusian Financial Format
-
-The pipeline handles Belarusian-specific number formats:
-
-| Format                     | Example      | Parsed Value |
-| -------------------------- | ------------ | ------------ |
-| Thousand separator (space) | `1 234 567`  | `1234567`    |
-| Decimal separator (comma)  | `123,45`     | `123`        |
-| Negative in parentheses    | `(1 000)`    | `-1000`      |
-| NBSP handling              | `1\u{a0}234` | `1234`       |
-
-### Header and Column Cleaning Parity
-
-- For balance-style tables, if the first column is a descriptor column and code column is not first, the descriptor column is dropped before numeric cleaning.
-- Date headers are normalized after cleaning and then propagated to exported `data_columns` and XLSX headers.
-
-### Valid Financial Codes
-
-- **Balance sheet codes**: `010`, `020`, ..., `090` (2-3 digits, leading zero)
-- **Other codes**: `100` - `999` (3 digits)
-
-### Table Validation
-
-Minimum dimensions:
-
-- 3 columns
-- 10 rows
-
-## Development
-
-### Project Structure
-
-```bash
-# Run all tests
-cargo test --all
-
-# Run specific test
-cargo test -p tbel-pdf test_report_type
-
-# Run with coverage (requires cargo-tarpaulin)
-cargo tarpaulin --out Html
-
-# Check documentation
-cargo doc --open --no-deps
-```
-
-### Adding New Report Types
-
-1. Add variant to `ReportType` enum in `tbel-pdf/src/models/report_type.rs`
-2. Update `FromStr` implementation
-3. Add validation rules in `DataFrameCleaner`
-4. Update tests
-
-### Adding OCR Providers
-
-1. Implement `OcrProvider` trait in `tbel-pdf/src/ocr.rs`
-2. Add provider-specific configuration
-3. Update CLI to accept provider selection
+| File | Purpose |
+| ---- | ------- |
+| `ocr_output.md` | raw OCR markdown returned by Mistral |
+| `tables.json` | extracted `ReportTable` candidates after preprocessing/validation |
+| `cleaned_tables.json` | final normalized business rows before XLSX export |
+| `meta.json` | document id, report type, table counts, and XLSX path |
 
 ## Testing
 
-```bash
-# Unit tests
-cargo test --all
+Offline validation does not require a Mistral key:
 
-# URL parity test (requires MISTRAL_API_KEY)
-cargo test --workspace
+```bash
+cargo fmt --all --check
+cargo clippy --workspace --all-targets --features cli -- -D warnings
+cargo test --workspace --features cli
 ```
 
-## Dependencies
+## Coverage
 
-### Core
+Coverage uses `cargo-llvm-cov` and measures library code only. The CLI feature is intentionally excluded so the number tracks reusable pipeline modules rather than command/export plumbing.
 
-| Crate       | Version | Purpose                 |
-| ----------- | ------- | ----------------------- |
-| `thiserror` | 2.0     | Error derive macros     |
-| `serde`     | 1.0     | Serialization           |
-| `tracing`   | 0.1     | Logging/Instrumentation |
-| `regex`     | 1.10+   | Pattern matching        |
+Install the tool once:
 
-### Adapters
+```bash
+cargo install cargo-llvm-cov
+```
 
-| Crate         | Version | Purpose       |
-| ------------- | ------- | ------------- |
-| `scraper`     | 0.22    | HTML parsing  |
-| `lopdf`       | 0.34    | PDF reading   |
-| `chrono`      | 0.4     | Date handling |
-| `async-trait` | 0.1     | Async traits  |
+Run coverage from this workspace:
 
-### CLI
+```bash
+bash coverage.sh
+```
 
-| Crate    | Version | Purpose              |
-| -------- | ------- | -------------------- |
-| `clap`   | 4.5     | CLI argument parsing |
-| `tokio`  | 1.0     | Async runtime        |
-| `anyhow` | 1.0     | Error handling       |
+The script runs `cargo llvm-cov -p tbel-pdf --lib`, prints line/function/region coverage, shows missing lines, writes the HTML report to `target/coverage/index.html`, and fails if line coverage is below `70%`.
 
-## License
+Override the threshold locally when needed:
 
-Proprietary - TBel.info
+```bash
+COVERAGE_FAIL_UNDER_LINES=80 bash coverage.sh
+```
 
-## Related
+`ci-check.sh` also runs the same library coverage gate when `cargo-llvm-cov` is installed. If the tool is missing, CI prints a skip message and continues.
 
-- API endpoints: `src/tbel/api/documents/`
+Real OCR smoke runs require `MISTRAL_API_KEY`:
+
+```bash
+cargo run --features cli -- pipeline --input-url https://cetco-resurs.by/file111.pdf --report-type income_statement --emit-stage-artifacts
+cargo run --features cli -- pipeline --input-url https://cetco-resurs.by/file122.pdf --report-type balance_sheet --emit-stage-artifacts
+cargo run --features cli -- pipeline --input-url https://cetco-resurs.by/file133.pdf --report-type cashflow --emit-stage-artifacts
+```
+
+## Development Notes
+
+- Rust toolchain is pinned to `1.94.0` in `rust-toolchain.toml`.
+- `ProcessingFacade` is the shared entry point for native CLI and wasm bridge.
+- Models in `src/models/` are pure and must not own I/O.
+- OCR, PDF, scraper, and export boundaries live outside model types.
+- JSON contract changes must be reflected in `docs/cli-contract.md`.
+
+## Exit Codes
+
+| Code | Meaning |
+| ---- | ------- |
+| `0` | success |
+| `1` | usage error |
+| `2` | pipeline error |
+| `3` | provider/OCR error |
