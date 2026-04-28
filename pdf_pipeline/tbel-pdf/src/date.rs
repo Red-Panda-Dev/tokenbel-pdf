@@ -436,10 +436,7 @@ mod tests {
 
     #[test]
     fn test_response_to_header_value() {
-        assert_eq!(
-            RuleBasedDateNormalizer::parse_model_output("ERROR"),
-            None
-        );
+        assert_eq!(RuleBasedDateNormalizer::parse_model_output("ERROR"), None);
         assert_eq!(
             RuleBasedDateNormalizer::parse_model_output("09.2024"),
             Some("09.2024".to_string())
