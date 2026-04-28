@@ -504,10 +504,7 @@ mod tests {
         let cleaned = clean_report_tables_with_normalizer(&result, &stub).await;
 
         assert_eq!(cleaned.len(), 1);
-        assert_eq!(
-            cleaned[0].headers,
-            vec!["code", "12.2025", "12.2024"]
-        );
+        assert_eq!(cleaned[0].headers, vec!["code", "12.2025", "12.2024"]);
         assert_eq!(cleaned[0].rows.len(), 3);
         assert_eq!(cleaned[0].rows[0], vec!["110", "25", "63"]);
     }
