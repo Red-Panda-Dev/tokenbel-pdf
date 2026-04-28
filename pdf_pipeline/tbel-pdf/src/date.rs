@@ -10,7 +10,7 @@ use std::sync::Mutex;
 use thiserror::Error;
 
 /// Error types for date normalization.
-#[derive(Debug, Error)]
+#[derive(Debug, Clone, Error)]
 pub enum DateError {
     #[error("Parse error: {0}")]
     Parse(String),
@@ -18,6 +18,7 @@ pub enum DateError {
 
 const DEFAULT_MISTRAL_MODEL: &str = "mistral-large-latest";
 const DATE_PROMPT_TEMPLATE: &str = include_str!("../prompts/financial_date_extraction.txt");
+const MAX_RETRIES: u8 = 3;
 
 #[derive(Debug, Clone)]
 pub struct DateNormalizerConfig {
@@ -125,7 +126,7 @@ impl RuleBasedDateNormalizer {
         DATE_PROMPT_TEMPLATE.replace("{header_text}", header)
     }
 
-    fn is_valid_mm_yyyy(value: &str) -> bool {
+    pub fn is_valid_mm_yyyy(value: &str) -> bool {
         let mut parts = value.split('.');
         let Some(month_raw) = parts.next() else {
             return false;
@@ -145,17 +146,17 @@ impl RuleBasedDateNormalizer {
         year_raw.chars().all(|ch| ch.is_ascii_digit()) && (1..=12).contains(&month)
     }
 
-    fn response_to_header_value(header: &str, model_output: &str) -> String {
+    fn parse_model_output(model_output: &str) -> Option<String> {
         let first_line = model_output.lines().next().unwrap_or_default().trim();
 
         if first_line.eq_ignore_ascii_case("ERROR") {
-            return header.to_string();
+            return None;
         }
 
         if Self::is_valid_mm_yyyy(first_line) {
-            first_line.to_string()
+            Some(first_line.to_string())
         } else {
-            header.to_string()
+            None
         }
     }
 
@@ -269,21 +270,58 @@ impl DateNormalizer for RuleBasedDateNormalizer {
             return Ok(value);
         }
 
-        let normalized = if self.api_key.is_none() {
-            header.to_string()
-        } else {
-            let prompt = Self::build_prompt(header);
-            match self.request_mistral(prompt).await {
-                Ok(model_output) => Self::response_to_header_value(header, &model_output),
+        if self.api_key.is_none() {
+            self.cache_value(header, header);
+            return Ok(header.to_string());
+        }
+
+        let prompt = Self::build_prompt(header);
+        let mut last_error: Option<String> = None;
+
+        for attempt in 1..=MAX_RETRIES {
+            match self.request_mistral(prompt.clone()).await {
+                Ok(model_output) => {
+                    if let Some(normalized) = Self::parse_model_output(&model_output) {
+                        tracing::debug!(
+                            header = %header,
+                            attempt,
+                            normalized = %normalized,
+                            "Date header normalized successfully"
+                        );
+                        self.cache_value(header, &normalized);
+                        return Ok(normalized);
+                    }
+                    last_error = Some(format!(
+                        "Model returned invalid output (not MM.YYYY): {:?}",
+                        model_output.lines().next().unwrap_or_default()
+                    ));
+                    tracing::warn!(
+                        header = %header,
+                        attempt,
+                        output = %model_output.lines().next().unwrap_or_default(),
+                        "Date header normalization attempt produced invalid output"
+                    );
+                }
                 Err(err) => {
-                    tracing::warn!(header = %header, error = %err, "Failed to normalize header with Mistral");
-                    header.to_string()
+                    last_error = Some(err.to_string());
+                    tracing::warn!(
+                        header = %header,
+                        attempt,
+                        error = %err,
+                        "Date header normalization attempt failed"
+                    );
                 }
             }
-        };
+        }
 
-        self.cache_value(header, &normalized);
-        Ok(normalized)
+        tracing::warn!(
+            header = %header,
+            attempts = MAX_RETRIES,
+            last_error = ?last_error,
+            "All date header normalization attempts failed, returning None to signal fallback"
+        );
+
+        Ok(header.to_string())
     }
 }
 
@@ -333,6 +371,59 @@ impl DateNormalizer for StubDateNormalizer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn test_parse_model_output_valid() {
+        assert_eq!(
+            RuleBasedDateNormalizer::parse_model_output("12.2025"),
+            Some("12.2025".to_string())
+        );
+        assert_eq!(
+            RuleBasedDateNormalizer::parse_model_output("09.2024"),
+            Some("09.2024".to_string())
+        );
+        assert_eq!(
+            RuleBasedDateNormalizer::parse_model_output("01.2023"),
+            Some("01.2023".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_model_output_error() {
+        assert_eq!(RuleBasedDateNormalizer::parse_model_output("ERROR"), None);
+        assert_eq!(RuleBasedDateNormalizer::parse_model_output("error"), None);
+        assert_eq!(RuleBasedDateNormalizer::parse_model_output("Error"), None);
+    }
+
+    #[test]
+    fn test_parse_model_output_invalid() {
+        assert_eq!(RuleBasedDateNormalizer::parse_model_output("2025"), None);
+        assert_eq!(RuleBasedDateNormalizer::parse_model_output("12/2025"), None);
+        assert_eq!(RuleBasedDateNormalizer::parse_model_output("12.25"), None);
+        assert_eq!(RuleBasedDateNormalizer::parse_model_output("13.2025"), None);
+        assert_eq!(RuleBasedDateNormalizer::parse_model_output(""), None);
+    }
+
+    #[test]
+    fn test_parse_model_output_multiline() {
+        assert_eq!(
+            RuleBasedDateNormalizer::parse_model_output("12.2025\nexplanation"),
+            Some("12.2025".to_string())
+        );
+        assert_eq!(
+            RuleBasedDateNormalizer::parse_model_output("ERROR\nreason"),
+            None
+        );
+    }
+
+    #[test]
+    fn test_parse_model_output_whitespace() {
+        assert_eq!(
+            RuleBasedDateNormalizer::parse_model_output("  12.2025  "),
+            Some("12.2025".to_string())
+        );
+    }
 
     #[test]
     fn test_mm_yyyy_validation() {
@@ -346,16 +437,16 @@ mod tests {
     #[test]
     fn test_response_to_header_value() {
         assert_eq!(
-            RuleBasedDateNormalizer::response_to_header_value("Наименование", "ERROR"),
-            "Наименование"
+            RuleBasedDateNormalizer::parse_model_output("ERROR"),
+            None
         );
         assert_eq!(
-            RuleBasedDateNormalizer::response_to_header_value("Наименование", "09.2024"),
-            "09.2024"
+            RuleBasedDateNormalizer::parse_model_output("09.2024"),
+            Some("09.2024".to_string())
         );
         assert_eq!(
-            RuleBasedDateNormalizer::response_to_header_value("Наименование", "September 2024"),
-            "Наименование"
+            RuleBasedDateNormalizer::parse_model_output("September 2024"),
+            None
         );
     }
 
@@ -441,5 +532,77 @@ mod tests {
         assert!(!RuleBasedDateNormalizer::is_valid_mm_yyyy("01.24"));
         assert!(!RuleBasedDateNormalizer::is_valid_mm_yyyy(""));
         assert!(!RuleBasedDateNormalizer::is_valid_mm_yyyy("01.2024.05"));
+    }
+
+    struct SequenceDateNormalizer {
+        responses: Vec<Result<String, DateError>>,
+        call_count: AtomicUsize,
+    }
+
+    impl SequenceDateNormalizer {
+        fn new(responses: Vec<Result<String, DateError>>) -> Self {
+            Self {
+                responses,
+                call_count: AtomicUsize::new(0),
+            }
+        }
+
+        fn call_count(&self) -> usize {
+            self.call_count.load(Ordering::SeqCst)
+        }
+    }
+
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    impl DateNormalizer for SequenceDateNormalizer {
+        async fn normalize_header(&self, _header: &str) -> Result<String, DateError> {
+            let idx = self.call_count.fetch_add(1, Ordering::SeqCst);
+            self.responses
+                .get(idx)
+                .cloned()
+                .unwrap_or(Ok("fallback".to_string()))
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn test_sequence_first_attempt_succeeds() {
+        let normalizer = SequenceDateNormalizer::new(vec![Ok("12.2025".to_string())]);
+        let result = normalizer.normalize_header("За 2025 г.").await.unwrap();
+        assert_eq!(result, "12.2025");
+        assert_eq!(normalizer.call_count(), 1);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn test_sequence_fails_then_succeeds() {
+        let normalizer = SequenceDateNormalizer::new(vec![
+            Err(DateError::Parse("fail".to_string())),
+            Ok("09.2024".to_string()),
+        ]);
+        let result1 = normalizer.normalize_header("test").await;
+        assert!(result1.is_err());
+        assert_eq!(normalizer.call_count(), 1);
+
+        let result2 = normalizer.normalize_header("test2").await;
+        assert_eq!(result2.unwrap(), "09.2024");
+        assert_eq!(normalizer.call_count(), 2);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn test_stub_year_only_headers() {
+        let stub = StubDateNormalizer::new()
+            .with_mapping("За 2025 г.", "12.2025")
+            .with_mapping("За 2024 г.", "12.2024");
+
+        assert_eq!(
+            stub.normalize_header("За 2025 г.").await.unwrap(),
+            "12.2025"
+        );
+        assert_eq!(
+            stub.normalize_header("За 2024 г.").await.unwrap(),
+            "12.2024"
+        );
     }
 }

@@ -58,7 +58,8 @@ pub use processing::{
     ProcessingFacade, ProcessingFacadeBuilder, ProcessingOptions, ProcessingResult,
 };
 pub use report_cleaning::{
-    clean_report_tables, normalize_date_header, parse_belarusian_integer, CleanedTable,
+    clean_report_tables, clean_report_tables_with_normalizer, normalize_date_header,
+    parse_belarusian_integer, CleanedTable,
 };
 pub use scraper::{extract_company_name, extract_financial_data, parse_document};
 pub use table_extraction::{

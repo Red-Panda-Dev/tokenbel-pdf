@@ -5,11 +5,12 @@ use rust_xlsxwriter::{Workbook, XlsxError};
 use std::path::PathBuf;
 
 use crate::contract::{ExitCode, SuccessContract};
+use crate::date::RuleBasedDateNormalizer;
 use crate::error::PipelineError;
 use crate::models::{PdfInput, ReportType};
 use crate::ocr::{MistralOcrProvider, OcrProvider};
 use crate::processing::{ProcessingFacadeBuilder, ProcessingResult};
-use crate::report_cleaning::{clean_report_tables, CleanedTable};
+use crate::report_cleaning::{clean_report_tables_with_normalizer, CleanedTable};
 
 const EXCEL_SHEET_NAME_MAX_CHARS: usize = 31;
 
@@ -202,9 +203,9 @@ pub async fn execute(args: PipelineArgs) -> Result<i32, Box<dyn std::error::Erro
     let document_id = input.document_id();
     let xlsx_path = output_xlsx_path(&args, &output_stem);
 
-    let ocr_provider = MistralOcrProvider::with_model(api_key, "mistral-ocr-latest");
+    let ocr_provider = MistralOcrProvider::with_model(api_key.clone(), "mistral-ocr-latest");
 
-    tracing::info!(document_id = %document_id, "Step 1/3: Running OCR");
+    tracing::info!(document_id = %document_id, "Step 1/4: Running OCR");
     let ocr_output = ocr_provider
         .acquire_ocr(input)
         .await
@@ -214,14 +215,14 @@ pub async fn execute(args: PipelineArgs) -> Result<i32, Box<dyn std::error::Erro
         document_id = %document_id,
         pages = ocr_output.page_count,
         markdown_len = ocr_output.markdown.len(),
-        "Step 1/3: OCR complete"
+        "Step 1/4: OCR complete"
     );
 
     let facade = ProcessingFacadeBuilder::default()
         .report_type(report_type)
         .build();
 
-    tracing::info!(document_id = %document_id, "Step 2/3: Extracting tables from markdown");
+    tracing::info!(document_id = %document_id, "Step 2/4: Extracting tables from markdown");
     let result = facade
         .process_markdown(
             &ocr_output.markdown,
@@ -236,10 +237,13 @@ pub async fn execute(args: PipelineArgs) -> Result<i32, Box<dyn std::error::Erro
     tracing::info!(
         document_id = %document_id,
         tables = result.tables.len(),
-        "Step 2/3: Table extraction complete"
+        "Step 2/4: Table extraction complete"
     );
 
-    let cleaned_tables = clean_report_tables(&result);
+    let date_normalizer = RuleBasedDateNormalizer::with_model(api_key, "mistral-large-latest");
+
+    tracing::info!(document_id = %document_id, "Step 3/4: Normalizing date headers");
+    let cleaned_tables = clean_report_tables_with_normalizer(&result, &date_normalizer).await;
     if cleaned_tables.is_empty() {
         return Err(PipelineError::NoFinancialTablesFound.into());
     }
@@ -247,10 +251,10 @@ pub async fn execute(args: PipelineArgs) -> Result<i32, Box<dyn std::error::Erro
     tracing::info!(
         document_id = %document_id,
         path = %xlsx_path.display(),
-        "Step 3/3: Generating XLSX"
+        "Step 4/4: Generating XLSX"
     );
     tables_to_xlsx(&cleaned_tables, &result.report_type, &xlsx_path)?;
-    tracing::info!(path = %xlsx_path.display(), "Step 3/3: XLSX saved");
+    tracing::info!(path = %xlsx_path.display(), "Step 4/4: XLSX saved");
 
     if args.emit_stage_artifacts {
         let artifact_dir = stage_artifact_dir(&output_stem);

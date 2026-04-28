@@ -61,6 +61,9 @@ Examples:
 - "2025 год" -> 12.2025
 - "2024 года" -> 12.2024
 - "за 2023 год" -> 12.2023
+- "За 2025 г." -> 12.2025
+- "За 2024 г." -> 12.2024
+- "за 2025 г" -> 12.2025
 
 6. NUMERIC MONTH/YEAR RULE
 If the text contains a numeric month/year like MM.YYYY,
