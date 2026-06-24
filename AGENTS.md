@@ -11,6 +11,7 @@ tokenbel-pdf/
 ├── ARCHITECTURE.md              # Authoritative architecture and invariants
 ├── README.md                    # Business overview and normalization rules
 ├── AGENTS.md                    # This global guide
+├── okf/                         # Agent-traversable OKF v0.1 knowledge docs
 └── pdf_pipeline/                # Cargo workspace root; all Rust code and tests
     ├── AGENTS.md                # Workspace/build/test guidance
     ├── docs/cli-contract.md     # Stable CLI JSON contract
@@ -38,6 +39,7 @@ tokenbel-pdf/
 - Keep the crate unified. Do not split `tbel-pdf` into separate core/adapters/cli crates unless the architecture docs are intentionally rewritten.
 - Prefer the smallest relevant subtree: workspace/build changes in `pdf_pipeline/`, crate code in `pdf_pipeline/tbel-pdf/`, regression data in `pdf_pipeline/tests/`.
 - Do not commit generated outputs from `pdf_pipeline/tests/output/`, `target/`, or `.osgrep/`.
+- `okf/` is generated knowledge documentation; keep concept docs citation-backed and in sync with code, and update `okf/log.md` when adding or refreshing concepts.
 - Live OCR requires `MISTRAL_API_KEY`; normal tests should remain offline and use committed fixtures.
 
 ## Validation
@@ -57,6 +59,7 @@ bash ci-check.sh
 
 | Doc | Path |
 | --- | --- |
+| Agent knowledge bundle (OKF v0.1) | `okf/index.md` |
 | Architecture and invariants | `ARCHITECTURE.md` |
 | Business overview | `README.md` |
 | Workspace operation | `pdf_pipeline/README.md` |
