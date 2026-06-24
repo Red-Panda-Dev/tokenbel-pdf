@@ -254,42 +254,30 @@ impl MistralOcrProvider {
         let markdown = pages
             .iter()
             .map(|page| {
-                let page_markdown = page
-                    .get("markdown")
-                    .and_then(|value| value.as_str())
-                    .unwrap_or_default();
-
-                let table_markdown = page
-                    .get("tables")
+                page.get("blocks")
                     .and_then(|value| value.as_array())
-                    .map(|tables| {
-                        tables
+                    .map(|blocks| {
+                        blocks
                             .iter()
-                            .filter_map(|table| {
-                                table
-                                    .get("content")
-                                    .and_then(|value| value.as_str())
-                                    .map(ToOwned::to_owned)
+                            .filter(|block| {
+                                block.get("type").and_then(|value| value.as_str()) == Some("table")
                             })
+                            .filter_map(|block| {
+                                block.get("content").and_then(|value| value.as_str())
+                            })
+                            .filter(|content| !content.trim().is_empty())
+                            .map(ToOwned::to_owned)
                             .collect::<Vec<_>>()
                             .join("\n\n")
                     })
-                    .unwrap_or_default();
-
-                if table_markdown.is_empty() {
-                    page_markdown.to_string()
-                } else if page_markdown.is_empty() {
-                    table_markdown
-                } else {
-                    format!("{}\n\n{}", page_markdown, table_markdown)
-                }
+                    .unwrap_or_default()
             })
             .collect::<Vec<_>>()
             .join("\n\n");
 
         if markdown.trim().is_empty() {
             return Err(ProviderError::Parse(
-                "Mistral OCR response pages contain no markdown".to_string(),
+                "Mistral OCR response pages contain no table blocks".to_string(),
             ));
         }
 
@@ -352,7 +340,7 @@ impl OcrProvider for MistralOcrProvider {
                 "document_url": document_url,
             },
             "include_image_base64": false,
-            "table_format": "markdown",
+            "include_blocks": true,
         });
 
         if let Some(document_name) = Self::doc_name(&input) {
@@ -500,29 +488,39 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_markdown_with_pages() {
+    fn test_parse_markdown_with_table_blocks() {
         let response = serde_json::json!({
             "pages": [
-                {"markdown": "# Page 1"},
-                {"markdown": "# Page 2"}
+                {
+                    "blocks": [
+                        {"type": "table", "content": "| Page | Value |\n| 1 | 100 |"}
+                    ]
+                },
+                {
+                    "blocks": [
+                        {"type": "table", "content": "| Page | Value |\n| 2 | 200 |"}
+                    ]
+                }
             ]
         });
         let result = MistralOcrProvider::parse_markdown(&response);
         assert!(result.is_ok());
         let (markdown, pages) = result.unwrap();
         assert_eq!(pages, 2);
-        assert!(markdown.contains("Page 1"));
-        assert!(markdown.contains("Page 2"));
+        assert!(markdown.contains("| 1 | 100 |"));
+        assert!(markdown.contains("| 2 | 200 |"));
     }
 
     #[test]
-    fn test_parse_markdown_with_tables() {
+    fn test_parse_markdown_ignores_non_table_blocks() {
         let response = serde_json::json!({
             "pages": [
                 {
-                    "markdown": "",
-                    "tables": [
-                        {"content": "| Col1 | Col2 |\n| A | B |"}
+                    "blocks": [
+                        {"type": "header", "content": "Header text"},
+                        {"type": "title", "content": "Title text"},
+                        {"type": "text", "content": "Body text"},
+                        {"type": "table", "content": "| Col1 | Col2 |\n| A | B |"}
                     ]
                 }
             ]
@@ -530,7 +528,113 @@ mod tests {
         let result = MistralOcrProvider::parse_markdown(&response);
         assert!(result.is_ok());
         let (markdown, _) = result.unwrap();
-        assert!(markdown.contains("Col1"));
+        assert_eq!(markdown, "| Col1 | Col2 |\n| A | B |");
+        assert!(!markdown.contains("Header text"));
+        assert!(!markdown.contains("Title text"));
+        assert!(!markdown.contains("Body text"));
+    }
+
+    #[test]
+    fn test_parse_markdown_multiple_table_blocks_per_page() {
+        let response = serde_json::json!({
+            "pages": [
+                {
+                    "blocks": [
+                        {"type": "table", "content": "| First |\n| 1 |"},
+                        {"type": "table", "content": "| Second |\n| 2 |"}
+                    ]
+                }
+            ]
+        });
+        let result = MistralOcrProvider::parse_markdown(&response);
+        assert!(result.is_ok());
+        let (markdown, pages) = result.unwrap();
+        assert_eq!(pages, 1);
+        assert_eq!(markdown, "| First |\n| 1 |\n\n| Second |\n| 2 |");
+    }
+
+    #[test]
+    fn test_parse_markdown_skips_empty_table_content() {
+        let response = serde_json::json!({
+            "pages": [
+                {
+                    "blocks": [
+                        {"type": "table", "content": ""},
+                        {"type": "table", "content": "   "},
+                        {"type": "table", "content": "| NonEmpty |\n| value |"}
+                    ]
+                }
+            ]
+        });
+        let result = MistralOcrProvider::parse_markdown(&response);
+        assert!(result.is_ok());
+        let (markdown, _) = result.unwrap();
+        assert_eq!(markdown, "| NonEmpty |\n| value |");
+    }
+
+    #[test]
+    fn test_parse_markdown_table_less_page_contributes_nothing() {
+        let response = serde_json::json!({
+            "pages": [
+                {
+                    "blocks": [
+                        {"type": "text", "content": "No table here"}
+                    ]
+                },
+                {
+                    "blocks": [
+                        {"type": "table", "content": "| Present |\n| yes |"}
+                    ]
+                }
+            ]
+        });
+        let result = MistralOcrProvider::parse_markdown(&response);
+        assert!(result.is_ok());
+        let (markdown, pages) = result.unwrap();
+        assert_eq!(pages, 2);
+        assert_eq!(markdown.trim(), "| Present |\n| yes |");
+        assert!(!markdown.contains("No table here"));
+    }
+
+    #[test]
+    fn test_parse_markdown_ignores_null_table_id() {
+        let response = serde_json::json!({
+            "pages": [
+                {
+                    "blocks": [
+                        {"type": "table", "table_id": null, "content": "| Table |\n| ok |"}
+                    ]
+                }
+            ]
+        });
+        let result = MistralOcrProvider::parse_markdown(&response);
+        assert!(result.is_ok());
+        let (markdown, _) = result.unwrap();
+        assert_eq!(markdown, "| Table |\n| ok |");
+    }
+
+    #[test]
+    fn test_parse_markdown_page_count_is_pages_len() {
+        let response = serde_json::json!({
+            "pages": [
+                {
+                    "blocks": [
+                        {"type": "table", "content": "| First |\n| 1 |"},
+                        {"type": "table", "content": "| Second |\n| 2 |"}
+                    ]
+                },
+                {"blocks": []},
+                {
+                    "blocks": [
+                        {"type": "table", "content": "| Third |\n| 3 |"}
+                    ]
+                }
+            ]
+        });
+        let result = MistralOcrProvider::parse_markdown(&response);
+        assert!(result.is_ok());
+        let (_, pages) = result.unwrap();
+        assert_eq!(pages, 3);
     }
 
     #[test]
