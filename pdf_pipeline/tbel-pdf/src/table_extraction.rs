@@ -6,6 +6,7 @@
 #[cfg(not(target_arch = "wasm32"))]
 use scraper::{Html, Selector};
 
+use crate::markdown::clean_markdown_cell_text;
 use crate::models::ReportTable;
 use crate::models::TableCell;
 
@@ -48,7 +49,7 @@ pub fn extract_table_candidates(html: &str) -> Vec<ReportTable> {
         // Extract headers from first row
         let headers: Vec<String> = rows[0]
             .select(&cell_selector)
-            .map(|cell| cell.text().collect::<String>().trim().to_string())
+            .map(|cell| clean_markdown_cell_text(&cell.text().collect::<String>()))
             .collect();
 
         // Extract data rows
@@ -59,7 +60,7 @@ pub fn extract_table_candidates(html: &str) -> Vec<ReportTable> {
                 .select(&cell_selector)
                 .enumerate()
                 .map(|(col_idx, cell)| {
-                    let content = cell.text().collect::<String>().trim().to_string();
+                    let content = clean_markdown_cell_text(&cell.text().collect::<String>());
                     TableCell::new(content, row_idx, col_idx)
                 })
                 .collect();
@@ -134,7 +135,7 @@ fn parse_markdown_tables(markdown: &str) -> Vec<ReportTable> {
             let cells: Vec<String> = trimmed
                 .trim_matches('|')
                 .split('|')
-                .map(|s| s.trim().to_string())
+                .map(clean_markdown_cell_text)
                 .collect();
 
             if !cells.is_empty() {

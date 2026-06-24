@@ -46,7 +46,7 @@ pub use cleaner::{ExtractedData, FinancialRecord, Page, PdfDocument};
 pub use contract::{ExitCode, FailureContract, SuccessContract};
 pub use date::{DateError, DateNormalizer, RuleBasedDateNormalizer, StubDateNormalizer};
 pub use error::{PipelineError, Result};
-pub use markdown::{clean_latex_from_markdown, preprocess_markdown};
+pub use markdown::{clean_latex_from_markdown, clean_markdown_cell_text, preprocess_markdown};
 pub use models::{
     CleanedReport, CodeValue, DataColumn, OcrOutput, PdfInput, ReportTable, ReportType, TableCell,
 };
@@ -59,7 +59,7 @@ pub use processing::{
 };
 pub use report_cleaning::{
     clean_report_tables, clean_report_tables_with_normalizer, normalize_date_header,
-    parse_belarusian_integer, CleanedTable,
+    parse_belarusian_integer, prepare_tables_debug, CleanedTable, PreparedTableDebug,
 };
 pub use scraper::{extract_company_name, extract_financial_data, parse_document};
 pub use table_extraction::{

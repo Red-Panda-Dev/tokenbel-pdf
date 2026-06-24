@@ -14,6 +14,8 @@ const FILE111_INCOME_MD: &str =
     include_str!("../../tests/fixtures/ocr/file111_income_statement.md");
 const FILE122_BALANCE_MD: &str = include_str!("../../tests/fixtures/ocr/file122_balance_sheet.md");
 const FILE133_CASHFLOW_MD: &str = include_str!("../../tests/fixtures/ocr/file133_cashflow.md");
+const FILE_BOLD_TOTALS_MD: &str =
+    include_str!("../../tests/fixtures/ocr/file_bold_totals_balance_sheet.md");
 
 fn fixtures_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -256,6 +258,43 @@ fn markdown_to_html(markdown: &str) -> String {
     }
 
     html
+}
+
+// Regression test for OCR output where section headers and total/balance rows
+// are wrapped in markdown bold markers (e.g. `**190**`, `**2 821**`, `**-**`).
+// The pipeline must strip the `**` formatting so totals survive cleaning with
+// correct values, instead of being dropped as non-numeric rows.
+#[test]
+fn test_bold_markdown_totals_are_cleaned_and_preserved() {
+    let tables = clean_fixture(
+        FILE_BOLD_TOTALS_MD,
+        ReportType::BalanceSheet,
+        "file_bold_totals_balance_sheet",
+    );
+
+    // Both tables (assets + liabilities) must survive.
+    assert_eq!(tables.len(), 2);
+    assert_standard_headers(&tables, ["12.2025", "12.2024"]);
+
+    // No residual markdown markers may leak into cleaned output.
+    let serialized = serde_json::to_string(&tables).unwrap();
+    assert!(
+        !serialized.contains("**"),
+        "bold markdown markers leaked into cleaned tables: {serialized}"
+    );
+
+    // Total and balance rows — previously dropped — must be present.
+    assert_eq!(row_for_code(&tables, "190"), &vec!["190", "2821", "0"]);
+    assert_eq!(row_for_code(&tables, "290"), &vec!["290", "3536", "0"]);
+    assert_eq!(row_for_code(&tables, "300"), &vec!["300", "6357", "0"]);
+    assert_eq!(row_for_code(&tables, "490"), &vec!["490", "296", "0"]);
+    assert_eq!(row_for_code(&tables, "590"), &vec!["590", "5498", "0"]);
+    assert_eq!(row_for_code(&tables, "690"), &vec!["690", "563", "0"]);
+    assert_eq!(row_for_code(&tables, "700"), &vec!["700", "6357", "0"]);
+
+    // Regular data rows must keep parsing correctly.
+    assert_eq!(row_for_code(&tables, "110"), &vec!["110", "239", "0"]);
+    assert_eq!(row_for_code(&tables, "270"), &vec!["270", "2736", "0"]);
 }
 
 #[test]

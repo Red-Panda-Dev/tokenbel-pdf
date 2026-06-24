@@ -2,6 +2,7 @@
 
 use crate::date::DateNormalizer;
 use crate::date::RuleBasedDateNormalizer;
+use crate::markdown::clean_markdown_cell_text;
 use crate::processing::ProcessingResult;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
@@ -71,12 +72,12 @@ fn remove_blank_columns(rows: &[Vec<String>]) -> Vec<Vec<String>> {
 }
 
 fn code_digits(value: &str) -> Option<String> {
-    let trimmed = value.trim();
+    let trimmed = clean_markdown_cell_text(value);
     if !trimmed.chars().all(|ch| ch.is_ascii_digit()) {
         return None;
     }
     if matches!(trimmed.len(), 2 | 3) {
-        Some(trimmed.to_string())
+        Some(trimmed)
     } else {
         None
     }
@@ -145,7 +146,7 @@ pub fn normalize_date_header(header: &str, fallback_index: usize) -> String {
 }
 
 pub fn parse_belarusian_integer(value: &str) -> i64 {
-    let trimmed = value.replace('\u{00a0}', " ").trim().to_string();
+    let trimmed = clean_markdown_cell_text(value);
     if trimmed.is_empty() || trimmed == "-" {
         return 0;
     }
@@ -213,24 +214,81 @@ fn prepare_table_for_cleaning(table: &crate::models::ReportTable) -> Option<Prep
 }
 
 fn build_cleaned_rows(rows: &[Vec<String>], headers_len: usize) -> Vec<Vec<String>> {
+    build_cleaned_rows_with_debug(rows, headers_len).0
+}
+
+/// Splits prepared rows into accepted (valid code + parsed values) and rejected rows.
+fn build_cleaned_rows_with_debug(
+    rows: &[Vec<String>],
+    headers_len: usize,
+) -> (Vec<Vec<String>>, Vec<Vec<String>>) {
     let data_row_start = rows
         .iter()
         .position(|row| code_digits(&cell_at(row, 0)).is_some())
         .unwrap_or(0)
         .max(1);
 
-    rows.iter()
-        .skip(data_row_start)
-        .filter_map(|row| {
-            let code = code_digits(&cell_at(row, 0))?;
-            let mut cleaned = Vec::with_capacity(headers_len);
-            cleaned.push(code);
-            cleaned.extend(
-                (1..headers_len).map(|col_index| {
+    let mut accepted = Vec::new();
+    let mut rejected = Vec::new();
+
+    for row in rows.iter().skip(data_row_start) {
+        match code_digits(&cell_at(row, 0)) {
+            Some(code) => {
+                let mut cleaned = Vec::with_capacity(headers_len);
+                cleaned.push(code);
+                cleaned.extend((1..headers_len).map(|col_index| {
                     parse_belarusian_integer(&cell_at(row, col_index)).to_string()
-                }),
-            );
-            Some(cleaned)
+                }));
+                accepted.push(cleaned);
+            }
+            None => rejected.push(row.clone()),
+        }
+    }
+
+    (accepted, rejected)
+}
+
+/// Debug snapshot of a single table after preprocessing/alignment but before
+/// final numeric cleaning. Useful for diagnosing dropped rows.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PreparedTableDebug {
+    /// Zero-based index of the source table within the processing result.
+    pub table_index: usize,
+    /// Original date-bearing headers detected in the raw table.
+    pub date_headers: Vec<String>,
+    /// Aligned header row (after blank-column removal and code-column alignment).
+    pub header: Vec<String>,
+    /// Prepared data rows (post-alignment, pre-cleaning).
+    pub rows: Vec<Vec<String>>,
+    /// Codes that passed cleaning and were accepted.
+    pub accepted_codes: Vec<String>,
+    /// Rows that were rejected (no valid code in the code column).
+    pub rejected_rows: Vec<Vec<String>>,
+}
+
+/// Builds debug snapshots for every table in a processing result.
+///
+/// Re-runs the deterministic `prepare_table_for_cleaning` logic and reports
+/// which rows survive code-digit filtering. Intended for artifact emission.
+pub fn prepare_tables_debug(result: &ProcessingResult) -> Vec<PreparedTableDebug> {
+    result
+        .tables
+        .iter()
+        .enumerate()
+        .filter_map(|(table_index, table)| {
+            let prepared = prepare_table_for_cleaning(table)?;
+            let headers_len = prepared.header.len();
+            let (accepted, rejected) = build_cleaned_rows_with_debug(&prepared.rows, headers_len);
+            let accepted_codes = accepted.iter().map(|row| row[0].clone()).collect();
+
+            Some(PreparedTableDebug {
+                table_index,
+                date_headers: prepared.date_headers,
+                header: prepared.header,
+                rows: prepared.rows,
+                accepted_codes,
+                rejected_rows: rejected,
+            })
         })
         .collect()
 }
@@ -401,6 +459,7 @@ mod tests {
             report_type: ReportType::BalanceSheet,
             tables: vec![table],
             page_count: 2,
+            preprocessed_markdown: String::new(),
         }
     }
 
@@ -499,6 +558,7 @@ mod tests {
             report_type: ReportType::StatementCashFlow,
             tables: vec![table],
             page_count: 1,
+            preprocessed_markdown: String::new(),
         };
 
         let cleaned = clean_report_tables_with_normalizer(&result, &stub).await;
@@ -535,5 +595,114 @@ mod tests {
         assert_eq!(cleaned[0].headers[0], "code");
         assert!(cleaned[0].headers[1].starts_with("date_"));
         assert!(cleaned[0].headers[2].starts_with("date_"));
+    }
+
+    fn bold_totals_result() -> ProcessingResult {
+        let mut table = ReportTable::new(
+            vec![
+                "Активы".to_string(),
+                "Код строки".to_string(),
+                "На 31 декабря 2025 года".to_string(),
+                "На 31 декабря 2024 года".to_string(),
+            ],
+            0,
+        );
+
+        for (row_index, values) in [
+            vec!["**I. ДОЛГОСРОЧНЫЕ АКТИВЫ**", "", "", ""],
+            vec!["Основные средства", "110", "239", ""],
+            vec!["**ИТОГО по разделу I**", "**190**", "**2 821**", "**-**"],
+            vec!["**БАЛАНС**", "**300**", "**6 357**", "**-**"],
+            vec!["Руководитель", "", "", ""],
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            table.rows.push(
+                values
+                    .into_iter()
+                    .enumerate()
+                    .map(|(col_index, value)| {
+                        TableCell::new(value.to_string(), row_index, col_index)
+                    })
+                    .collect(),
+            );
+        }
+
+        ProcessingResult {
+            document_id: "bold-test".to_string(),
+            report_type: ReportType::BalanceSheet,
+            tables: vec![table],
+            page_count: 1,
+            preprocessed_markdown: String::new(),
+        }
+    }
+
+    #[test]
+    fn test_code_digits_strips_markdown_bold() {
+        assert_eq!(code_digits("**190**"), Some("190".to_string()));
+        assert_eq!(code_digits("**300**"), Some("300".to_string()));
+        assert_eq!(code_digits("  110  "), Some("110".to_string()));
+    }
+
+    #[test]
+    fn test_parse_belarusian_integer_strips_markdown_bold() {
+        assert_eq!(parse_belarusian_integer("**2 821**"), 2821);
+        assert_eq!(parse_belarusian_integer("**6 357**"), 6357);
+        assert_eq!(parse_belarusian_integer("**-**"), 0);
+    }
+
+    #[test]
+    fn test_clean_report_tables_keeps_bold_total_rows() {
+        let result = bold_totals_result();
+        let cleaned = clean_report_tables(&result);
+
+        assert_eq!(cleaned.len(), 1);
+        let codes: Vec<&str> = cleaned[0].rows.iter().map(|r| r[0].as_str()).collect();
+        assert!(codes.contains(&"110"));
+        assert!(
+            codes.contains(&"190"),
+            "total row 190 must survive cleaning"
+        );
+        assert!(
+            codes.contains(&"300"),
+            "balance row 300 must survive cleaning"
+        );
+
+        let total = cleaned[0]
+            .rows
+            .iter()
+            .find(|r| r[0] == "190")
+            .expect("190 present");
+        assert_eq!(
+            total,
+            &vec!["190".to_string(), "2821".to_string(), "0".to_string()]
+        );
+
+        let balance = cleaned[0]
+            .rows
+            .iter()
+            .find(|r| r[0] == "300")
+            .expect("300 present");
+        assert_eq!(
+            balance,
+            &vec!["300".to_string(), "6357".to_string(), "0".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_prepare_tables_debug_reports_rejected_rows() {
+        let result = bold_totals_result();
+        let debug = prepare_tables_debug(&result);
+
+        assert_eq!(debug.len(), 1);
+        let codes = &debug[0].accepted_codes;
+        assert!(codes.contains(&"110".to_string()));
+        assert!(codes.contains(&"190".to_string()));
+        assert!(codes.contains(&"300".to_string()));
+        // The trailing signature row carries no code and should be rejected.
+        // (Its label column is dropped during alignment, so it is all-empty.)
+        assert_eq!(debug[0].rejected_rows.len(), 1);
+        assert!(debug[0].rejected_rows[0].iter().all(|c| c.is_empty()));
     }
 }

@@ -63,6 +63,36 @@ fn clean_single_latex_expression(latex_content: &str) -> String {
     cleaned.trim().to_string()
 }
 
+/// Strips inline markdown formatting from a single table cell value.
+///
+/// Removes bold/italic/code/strikethrough markers and escaped characters that
+/// OCR frequently emits around totals (e.g. `**190**`, `**2 821**`, `**-**`),
+/// normalizes non-breaking spaces, and collapses internal whitespace.
+///
+/// Example: `**2 821**` becomes `2 821`.
+pub fn clean_markdown_cell_text(value: &str) -> String {
+    let mut cleaned = value.to_string();
+
+    // Strip bold/italic markers (** and __ before single * and _)
+    cleaned = cleaned.replace("**", "");
+    cleaned = cleaned.replace("__", "");
+    // Strip remaining single italic markers
+    cleaned = cleaned.replace('*', "");
+    cleaned = cleaned.replace('_', "");
+    // Strip strikethrough markers
+    cleaned = cleaned.replace("~~", "");
+    // Strip inline code backticks
+    cleaned = cleaned.replace('`', "");
+    // Unescape escaped punctuation
+    cleaned = cleaned.replace("\\*", "*");
+    cleaned = cleaned.replace("\\_", "_");
+    cleaned = cleaned.replace("\\`", "`");
+
+    // Normalize NBSP to regular space and collapse whitespace
+    cleaned = cleaned.replace('\u{00a0}', " ");
+    cleaned.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 /// Checks if a line is a financial table header row.
 ///
 /// Supports multiple header patterns:
@@ -278,5 +308,40 @@ mod tests {
         assert_eq!(count_columns("| a | b | c |"), 3);
         assert_eq!(count_columns("| 010 | Name |"), 2);
         assert_eq!(count_columns("| a |"), 1);
+    }
+
+    #[test]
+    fn test_clean_markdown_cell_text_strips_bold() {
+        assert_eq!(clean_markdown_cell_text("**190**"), "190");
+        assert_eq!(clean_markdown_cell_text("**2 821**"), "2 821");
+        assert_eq!(clean_markdown_cell_text("**-**"), "-");
+        assert_eq!(
+            clean_markdown_cell_text("**I. ДОЛГОСРОЧНЫЕ АКТИВЫ**"),
+            "I. ДОЛГОСРОЧНЫЕ АКТИВЫ"
+        );
+    }
+
+    #[test]
+    fn test_clean_markdown_cell_text_strips_italic_code_strikethrough() {
+        assert_eq!(clean_markdown_cell_text("*text*"), "text");
+        assert_eq!(clean_markdown_cell_text("_text_"), "text");
+        assert_eq!(clean_markdown_cell_text("`code`"), "code");
+        assert_eq!(clean_markdown_cell_text("~~done~~"), "done");
+    }
+
+    #[test]
+    fn test_clean_markdown_cell_text_normalizes_whitespace() {
+        assert_eq!(clean_markdown_cell_text("  190  "), "190");
+        assert_eq!(clean_markdown_cell_text("1\u{00a0}986"), "1 986");
+        assert_eq!(clean_markdown_cell_text("a   b"), "a b");
+    }
+
+    #[test]
+    fn test_clean_markdown_cell_text_plain_passthrough() {
+        assert_eq!(clean_markdown_cell_text("110"), "110");
+        assert_eq!(
+            clean_markdown_cell_text("Основные средства"),
+            "Основные средства"
+        );
     }
 }

@@ -30,6 +30,9 @@ pub struct ProcessingResult {
     pub tables: Vec<ReportTable>,
     /// Number of pages processed.
     pub page_count: usize,
+    /// Preprocessed markdown (LaTeX-cleaned + restructured) used for extraction.
+    /// Kept for debugging/artifact emission.
+    pub preprocessed_markdown: String,
 }
 
 /// Processing options for fine-grained control.
@@ -164,6 +167,7 @@ impl ProcessingFacade {
             report_type,
             tables,
             page_count: ocr_output.page_count,
+            preprocessed_markdown: preprocessed,
         })
     }
 }
