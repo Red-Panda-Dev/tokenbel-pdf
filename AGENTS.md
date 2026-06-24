@@ -2,85 +2,70 @@
 
 ## Repository overview
 
-PDF extraction + OCR pipeline for Belarusian financial reports. Pure Rust project. Single Cargo workspace under `pdf_pipeline/` with one crate `tbel-pdf` that compiles as both a native CLI binary and a wasm32 library.
+PDF extraction + OCR pipeline for Belarusian financial reports. The repository is a Rust project with one Cargo workspace under `pdf_pipeline/` and one crate, `tbel-pdf`, which builds as a native CLI and a wasm32 library.
 
 ## Where to work
 
 ```text
 tokenbel-pdf/
-├── ARCHITECTURE.md              # Full architecture doc (authoritative for design decisions)
-├── README.md                    # Business overview, normalization rules, supported reports
-├── pdf_pipeline/                # Cargo workspace root — all Rust code lives here
-│   ├── AGENTS.md                # Authoritative guide for Rust work (read this first)
-│   ├── ci-check.sh              # CI verification matrix
-│   ├── coverage.sh              # Library coverage script (cargo-llvm-cov, 70% threshold)
-│   ├── docs/cli-contract.md     # JSON contract specification
-│   ├── tests/
-│   │   ├── *.pdf                # Sample financial reports (3 files)
-│   │   ├── fixtures/
-│   │   │   ├── ocr/             # Committed real OCR markdown (file111, file122, file133)
-│   │   │   ├── manifest.json   # Test fixture definitions
-│   │   │   └── source_of_truth/
-│   │   └── golden/              # Regression baselines (10 JSON+XLSX pairs)
-│   └── tbel-pdf/                # The single crate: lib + CLI + wasm bridge
-│       ├── src/
-│       │   ├── models/          # Pure domain types — no I/O
-│       │   ├── adapters/        # Re-exports + adapter submodules (ocr, pdf, scraper, etc.)
-│       │   ├── commands/        # CLI command dispatch (feature-gated)
-│       │   ├── contract/        # JSON output schemas and exit codes
-│       │   ├── bin/             # CLI binary entrypoint (feature-gated)
-│       │   ├── processing.rs    # Shared processing facade (native + wasm32)
-│       │   ├── report_cleaning.rs # Business-level table cleaning (library + CLI)
-│       │   ├── wasm_bridge.rs   # wasm32 JS interop (feature-gated, not on native)
-│       │   ├── ocr.rs, pdf.rs, scraper.rs, date.rs, markdown.rs
-│       │   ├── table_extraction.rs, cleaner.rs, normalization.rs
-│       │   ├── error.rs, types.rs
-│       │   └── lib.rs           # Public API re-exports
-│       ├── prompts/             # Mistral prompt templates
-│       └── tests/               # Integration tests + wasm smoke test
+├── ARCHITECTURE.md              # Authoritative architecture and invariants
+├── README.md                    # Business overview and normalization rules
+├── AGENTS.md                    # This global guide
+└── pdf_pipeline/                # Cargo workspace root; all Rust code and tests
+    ├── AGENTS.md                # Workspace/build/test guidance
+    ├── docs/cli-contract.md     # Stable CLI JSON contract
+    ├── tests/                   # PDFs, OCR fixtures, golden regressions
+    │   └── AGENTS.md            # Fixture and golden-file rules
+    └── tbel-pdf/                # Unified crate: lib + CLI + wasm bridge
+        ├── AGENTS.md            # Crate-local boundaries and change rules
+        ├── prompts/             # Mistral prompt templates
+        ├── src/                 # Rust library, CLI, wasm, pipeline modules
+        └── tests/               # Crate integration and wasm smoke tests
 ```
 
 ## Architecture and boundaries
 
-- **Dependency direction**: CLI → Contract → Processing Pipeline → Models + Adapters
-- **Models are pure**: `src/models/` has zero I/O imports — no `reqwest`, `tokio`, filesystem access
-- **Adapters own I/O**: OCR providers, PDF reader, HTML scraper — all external service boundaries
-- **ProcessingFacade** (`processing.rs`) is the shared entry point used by both CLI and wasm bridge
-- **report_cleaning.rs** is a library module with `clean_report_tables()`, `CleanedTable`, and normalization helpers — shared between CLI export and integration tests
-- **Feature gates**: `cli` feature enables CLI binary; blocked on wasm32 via `compile_error!` guard
-- **wasm32 target**: library-only, exposed through `wasm_bridge.rs` with `wasm_bindgen` exports
+- Main dependency direction: CLI/wasm entrypoints → `ProcessingFacade` + `report_cleaning` → pipeline modules + adapters → pure models.
+- `pdf_pipeline/tbel-pdf/src/models/` is pure domain data. Do not add HTTP, filesystem, Tokio, scraper, or PDF-reader logic there.
+- External OCR must stay behind `OcrProvider` in `src/ocr.rs`; offline tests use mock/stub providers.
+- `ProcessingFacade` in `src/processing.rs` is the shared orchestration path for CLI and wasm callers.
+- Native CLI code is feature-gated with `cli`; wasm32 is library-only and rejects `cli` at compile time.
+- CLI JSON output is a contract. If `src/contract/mod.rs` changes, update `pdf_pipeline/docs/cli-contract.md` and contract tests together.
 
 ## Change rules
 
-- Rust toolchain is pinned to **1.94.0** (`pdf_pipeline/rust-toolchain.toml`). Do not change.
-- Do not split the crate into core/adapters/cli — it is unified by design.
-- Do not add I/O to model types in `src/models/`.
-- Do not change JSON contract types without updating contract tests and `docs/cli-contract.md`.
-- `pdf_pipeline/AGENTS.md` is authoritative for Rust-specific guidance; this root file routes into it.
+- Rust toolchain is pinned to `1.94.0` in `pdf_pipeline/rust-toolchain.toml`; do not change it casually.
+- Keep the crate unified. Do not split `tbel-pdf` into separate core/adapters/cli crates unless the architecture docs are intentionally rewritten.
+- Prefer the smallest relevant subtree: workspace/build changes in `pdf_pipeline/`, crate code in `pdf_pipeline/tbel-pdf/`, regression data in `pdf_pipeline/tests/`.
+- Do not commit generated outputs from `pdf_pipeline/tests/output/`, `target/`, or `.osgrep/`.
+- Live OCR requires `MISTRAL_API_KEY`; normal tests should remain offline and use committed fixtures.
 
 ## Validation
 
+Run from `pdf_pipeline/` unless noted:
+
 ```bash
-cd pdf_pipeline && cargo fmt --all --check
-cd pdf_pipeline && cargo clippy --workspace --all-targets --features cli -- -D warnings
-cd pdf_pipeline && cargo test --workspace --features cli
-cd pdf_pipeline && bash ci-check.sh
+cargo fmt --all --check
+cargo clippy --workspace --all-targets --features cli -- -D warnings
+cargo test --workspace --features cli
+bash ci-check.sh
 ```
+
+`ci-check.sh` also checks native library/CLI builds, wasm32 library builds, optional wasm smoke, and optional coverage when the required tools are installed.
 
 ## Key docs
 
 | Doc | Path |
-|-----|------|
-| Architecture decisions | `ARCHITECTURE.md` |
-| Rust-specific guide | `pdf_pipeline/AGENTS.md` |
-| Operational reference | `pdf_pipeline/README.md` |
-| Crate-level docs | `pdf_pipeline/tbel-pdf/README.md` |
+| --- | --- |
+| Architecture and invariants | `ARCHITECTURE.md` |
+| Business overview | `README.md` |
+| Workspace operation | `pdf_pipeline/README.md` |
+| Crate API and fixtures | `pdf_pipeline/tbel-pdf/README.md` |
 | CLI JSON contract | `pdf_pipeline/docs/cli-contract.md` |
 
-## Gotchas
+## Repository-specific gotchas
 
-- `src/adapters/` contains both a `mod.rs` (re-exports from parent modules) and real submodules — the canonical implementations are the top-level modules (`ocr.rs`, `pdf.rs`, `scraper.rs`, `date.rs`, `markdown.rs`, `table_extraction.rs`).
-- The crate publishes as `cdylib` + `rlib` — changing crate types affects the wasm build.
-- Golden files in `pdf_pipeline/tests/golden/` are regression baselines; update intentionally.
-- `MISTRAL_API_KEY` is required for real OCR; tests use `MockOcrProvider` / `StubOcrProvider` to run offline.
-- `--features cli` is required for `cargo test`, `cargo clippy`, and CLI builds because integration tests and the pipeline command depend on it.
+- `pdf_pipeline/tbel-pdf/src/adapters/mod.rs` re-exports top-level modules for compatibility; canonical implementations are `src/ocr.rs`, `src/pdf.rs`, `src/date.rs`, etc.
+- The crate publishes both `cdylib` and `rlib`; changing crate types affects wasm consumers.
+- Golden regression files are paired `.json` + `.xlsx` baselines under `pdf_pipeline/tests/golden/` and should change only intentionally.
+- `--features cli` is required for CLI builds and workspace integration tests.
