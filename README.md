@@ -73,6 +73,10 @@ The test suite includes committed OCR markdown from real reports:
 
 These tests run offline and protect business-critical OCR edge cases: metadata merged into a financial table, blank OCR columns, split continuation labels, and multi-page report sections.
 
+## Knowledge Documentation (OKF)
+
+`okf/` holds an Open Knowledge Format (OKF v0.1) bundle: markdown concept documents with YAML frontmatter, cross-links, and citation-backed claims grounded in source. It is intended for both humans and AI agents navigating the pipeline. Start at `okf/index.md` and append to `okf/log.md` when concepts are added or refreshed.
+
 ## Related TokenBel Projects
 
 - `tokenbel.info`
