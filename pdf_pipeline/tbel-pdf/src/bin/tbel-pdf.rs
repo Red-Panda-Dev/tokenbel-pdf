@@ -10,8 +10,16 @@ fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
     let args = App::parse();
-    let exit_code =
-        tokio::runtime::Runtime::new()?.block_on(async { args.execute().await.unwrap_or(1i32) });
+    let exit_code = tokio::runtime::Runtime::new()?.block_on(async {
+        match args.execute().await {
+            Ok(code) => code,
+            Err(err) => {
+                tracing::error!(error = ?err, "Command failed");
+                eprintln!("error: {err:#}");
+                1i32
+            }
+        }
+    });
 
     std::process::exit(exit_code);
 }

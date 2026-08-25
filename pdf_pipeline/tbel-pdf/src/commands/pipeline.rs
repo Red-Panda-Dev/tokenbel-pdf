@@ -103,6 +103,28 @@ fn source_filename(input_url: &str) -> String {
         .to_string()
 }
 
+/// Builds a `PdfInput` from a CLI argument.
+///
+/// Remote `http(s)://` inputs become `PdfInput::Url`. Anything else that
+/// resolves to an existing local file becomes `PdfInput::Path`, so the OCR
+/// provider reads the bytes locally and uploads a base64 data URL instead of
+/// sending a bare filesystem path to the Mistral API (which rejects it with
+/// HTTP 422).
+fn build_pdf_input(input_url: &str, output_stem: String) -> PdfInput {
+    if !input_url.starts_with("http://") && !input_url.starts_with("https://") {
+        let path = PathBuf::from(input_url);
+        if path.is_file() {
+            return PdfInput::Path {
+                path,
+                document_id: Some(output_stem),
+            };
+        }
+    }
+
+    let filename = source_filename(input_url);
+    PdfInput::from_url(input_url, output_stem, Some(filename))
+}
+
 fn safe_output_stem(input_url: &str) -> String {
     let filename = source_filename(input_url);
     let stem = filename
@@ -198,18 +220,17 @@ pub async fn execute(args: PipelineArgs) -> Result<i32, Box<dyn std::error::Erro
     })?;
 
     let output_stem = safe_output_stem(&args.input_url);
-    let filename = source_filename(&args.input_url);
-    let input = PdfInput::from_url(&args.input_url, output_stem.clone(), Some(filename));
+    let input = build_pdf_input(&args.input_url, output_stem.clone());
     let document_id = input.document_id();
     let xlsx_path = output_xlsx_path(&args, &output_stem);
 
     let ocr_provider = MistralOcrProvider::with_model(api_key.clone(), "mistral-ocr-latest");
 
     tracing::info!(document_id = %document_id, "Step 1/4: Running OCR");
-    let ocr_output = ocr_provider
-        .acquire_ocr(input)
-        .await
-        .map_err(|e| PipelineError::ProviderError(e.to_string()))?;
+    let ocr_output = ocr_provider.acquire_ocr(input).await.map_err(|e| {
+        tracing::error!(error = %e, "OCR acquisition failed");
+        PipelineError::ProviderError(e.to_string())
+    })?;
 
     tracing::info!(
         document_id = %document_id,
@@ -406,6 +427,26 @@ mod tests {
             stage_artifact_dir("file122"),
             PathBuf::from("file122_artifacts")
         );
+    }
+
+    #[test]
+    fn test_build_pdf_input_url_stays_url() {
+        let input = build_pdf_input("https://example.com/report.pdf", "report".to_string());
+        assert!(matches!(input, PdfInput::Url { .. }));
+    }
+
+    #[test]
+    fn test_build_pdf_input_existing_local_file_becomes_path() {
+        let exe = std::env::current_exe().expect("current exe should exist");
+        let input = build_pdf_input(exe.to_str().expect("utf-8 path"), "local-doc".to_string());
+        assert!(matches!(input, PdfInput::Path { .. }));
+        assert_eq!(input.document_id(), "local-doc");
+    }
+
+    #[test]
+    fn test_build_pdf_input_nonexistent_local_path_stays_url() {
+        let input = build_pdf_input("/definitely/not/a/real/file.pdf", "stub".to_string());
+        assert!(matches!(input, PdfInput::Url { .. }));
     }
 
     #[test]
