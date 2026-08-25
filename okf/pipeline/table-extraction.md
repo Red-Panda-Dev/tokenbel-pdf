@@ -24,6 +24,21 @@ cleaning (`src/report_cleaning.rs`) [1][2][3].
 like financial statements (headers, code-like rows, dimensions) [1][4]. Both are
 re-exported from `src/lib.rs` [3].
 
+### Page-boundary continuation merging
+
+Mistral OCR emits table blocks per page (`src/ocr.rs` joins page blocks with
+blank lines), so a table split across pages arrives as an orphan markdown block
+containing only the rows at the top of the next page (e.g. balance-sheet totals
+290/300) with no repeated financial header. Such a block fails
+`is_valid_financial_table` on its own and would be silently dropped [1][5].
+
+`parse_markdown_tables` therefore flushes each block through `flush_table_rows`,
+which appends a block to the previous table when `is_continuation_fragment`
+holds: a previous table exists, the block has no financial header row, and its
+first row contains a code-like cell (2-3 digits). A block that repeats a
+financial header (e.g. the liabilities section on page 2) starts its own table
+[1].
+
 If no candidates survive, `ProcessingFacade` returns
 `PipelineError::NoFinancialTablesFound` (see
 [ProcessingFacade](/pipeline/processing-facade.md)).
@@ -58,3 +73,4 @@ Date header normalization can delegate to the
 [2] `pdf_pipeline/tbel-pdf/src/report_cleaning.rs` — `CleanedTable` and cleaning helpers.
 [3] `pdf_pipeline/tbel-pdf/src/lib.rs` — public re-exports.
 [4] `pdf_pipeline/README.md` — pipeline stage descriptions and stage artifacts.
+[5] `pdf_pipeline/tests/fixtures/ocr/buh_balans_2kv_2026.md` — real OCR fixture with a page-boundary split (rows 290/300 as an orphan block); regression-tested in `pdf_pipeline/tbel-pdf/tests/pipeline.rs` (`test_page_boundary_balance_sheet_keeps_totals_rows_290_and_300`).
