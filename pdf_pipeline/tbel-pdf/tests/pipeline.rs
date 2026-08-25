@@ -16,6 +16,8 @@ const FILE122_BALANCE_MD: &str = include_str!("../../tests/fixtures/ocr/file122_
 const FILE133_CASHFLOW_MD: &str = include_str!("../../tests/fixtures/ocr/file133_cashflow.md");
 const FILE_BOLD_TOTALS_MD: &str =
     include_str!("../../tests/fixtures/ocr/file_bold_totals_balance_sheet.md");
+const BUH_BALANS_2KV_2026_MD: &str =
+    include_str!("../../tests/fixtures/ocr/buh_balans_2kv_2026.md");
 
 fn fixtures_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -112,6 +114,69 @@ fn test_real_balance_sheet_ocr_markdown_extracts_assets_and_liabilities() {
     assert_eq!(row_for_code(&tables, "300"), &vec!["300", "5009", "4797"]);
     assert_eq!(row_for_code(&tables, "410"), &vec!["410", "125", "125"]);
     assert_eq!(row_for_code(&tables, "700"), &vec!["700", "5009", "4797"]);
+}
+
+#[test]
+fn test_page_boundary_balance_sheet_keeps_totals_rows_290_and_300() {
+    // Regression: Mistral OCR splits the assets table at the page boundary,
+    // emitting rows 290/300 as an orphan block at the top of page 2. The
+    // block has no repeated financial header, so it must be merged back into
+    // the assets table instead of being dropped by validity filtering.
+    let tables = clean_fixture(
+        BUH_BALANS_2KV_2026_MD,
+        ReportType::BalanceSheet,
+        "buh_balans_2kv_2026",
+    );
+
+    assert_standard_headers(&tables, ["06.2026", "12.2025"]);
+    assert_eq!(row_for_code(&tables, "290"), &vec!["290", "20503", "8556"]);
+    assert_eq!(
+        row_for_code(&tables, "300"),
+        &vec!["300", "913168", "706494"]
+    );
+
+    // Arithmetic invariant: БАЛАНС (300) = ИТОГО I (190) + ИТОГО II (290).
+    let row190: Vec<i64> = row_for_code(&tables, "190")
+        .iter()
+        .skip(1)
+        .map(|v| v.parse().unwrap())
+        .collect();
+    let row290: Vec<i64> = row_for_code(&tables, "290")
+        .iter()
+        .skip(1)
+        .map(|v| v.parse().unwrap())
+        .collect();
+    let row300: Vec<i64> = row_for_code(&tables, "300")
+        .iter()
+        .skip(1)
+        .map(|v| v.parse().unwrap())
+        .collect();
+    assert_eq!(row300[0], row190[0] + row290[0]);
+    assert_eq!(row300[1], row190[1] + row290[1]);
+
+    // Passive side (page 2) remains intact, and 700 == 300.
+    assert_eq!(
+        row_for_code(&tables, "700"),
+        &vec!["700", "913168", "706494"]
+    );
+    assert_eq!(
+        row_for_code(&tables, "480"),
+        &vec!["480", "907457", "702472"]
+    );
+
+    // Full code coverage from the source document (both pages).
+    let expected_codes = [
+        "110", "120", "130", "131", "132", "133", "140", "150", "160", "170", "180", "190", "210",
+        "211", "212", "213", "214", "215", "216", "220", "230", "240", "250", "260", "270", "280",
+        "290", "300", "410", "420", "430", "440", "450", "460", "470", "480", "490", "510", "520",
+        "530", "540", "550", "560", "590", "610", "620", "630", "631", "632", "633", "634", "635",
+        "636", "637", "638", "640", "650", "660", "670", "690", "700",
+    ];
+    let actual_codes: Vec<&str> = tables
+        .iter()
+        .flat_map(|table| table.rows.iter().map(|row| row[0].as_str()))
+        .collect();
+    assert_eq!(actual_codes, expected_codes);
 }
 
 #[test]
