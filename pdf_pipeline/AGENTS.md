@@ -1,8 +1,10 @@
 # AGENTS.md
 
-## Scope
+## Scope and inheritance
 
-This directory is the Cargo workspace root. It owns the pinned Rust toolchain, CI scripts, workspace-level tests, and the single member crate `tbel-pdf`.
+Applies to: `pdf_pipeline/` (Cargo workspace root).
+
+Inherits repository-wide guidance from `../AGENTS.md`. This file defines only local differences for this subtree.
 
 ## What lives here
 

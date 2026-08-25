@@ -1,8 +1,10 @@
 # AGENTS.md
 
-## Scope
+## Scope and inheritance
 
-This directory holds workspace-level regression inputs and expected outputs for the PDF/OCR pipeline. Treat it as business test data, not scratch space.
+Applies to: `pdf_pipeline/tests/` (workspace regression inputs and baselines).
+
+Inherits workspace guidance from `../AGENTS.md` and repository-wide guidance from `../../AGENTS.md`. This file defines only local differences for this subtree.
 
 ## What lives here
 
@@ -15,7 +17,7 @@ tests/
 │   ├── ocr/                     # Committed OCR markdown used for offline tests
 │   └── source_of_truth/         # Reference XLSX data for real reports
 ├── golden/                      # Paired JSON + XLSX regression baselines
-└── output/                      # Local/generated test output; keep gitignored
+└── output/                      # Local test artifacts; gitignored except .gitkeep
 ```
 
 ## Local boundaries and invariants
@@ -29,7 +31,7 @@ tests/
 
 - When adding a real fixture, add the OCR markdown and update `fixtures/manifest.json`/`manifest.lock.json` if the tests consume the manifest.
 - When changing extraction or cleaning behavior, inspect the corresponding golden diff instead of blindly overwriting baselines.
-- Keep fixture filenames descriptive enough to identify report type and scenario, following existing names such as `file111_income_statement.md` and `under_dimension_rows.json`.
+- Keep fixture and golden filenames descriptive enough to identify report type and scenario, following existing names such as `file111_income_statement.md` (OCR fixture) and `under_dimension_rows.json` (golden case).
 - Do not remove source-of-truth XLSX files unless the test coverage using them is removed or replaced intentionally.
 
 ## Validation

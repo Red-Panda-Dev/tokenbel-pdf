@@ -33,14 +33,24 @@ tokenbel-pdf/
 - Native CLI code is feature-gated with `cli`; wasm32 is library-only and rejects `cli` at compile time.
 - CLI JSON output is a contract. If `src/contract/mod.rs` changes, update `pdf_pipeline/docs/cli-contract.md` and contract tests together.
 
+## Context routing
+
+Read only when the task touches that area:
+
+- Cross-module changes, dependency direction, target boundaries → `ARCHITECTURE.md`
+- Normalization semantics or supported report types → `README.md`
+- CLI JSON shape, exit codes, downstream compatibility → `pdf_pipeline/docs/cli-contract.md`
+- Workspace commands, pipeline stage details, coverage → `pdf_pipeline/README.md`
+- Crate public API, feature flags, module map → `pdf_pipeline/tbel-pdf/README.md`
+- Deep pipeline/domain concepts (OCR boundary, table extraction, date rules) → `okf/index.md`; append to `okf/log.md` when concepts are added or refreshed
+
 ## Change rules
 
 - Rust toolchain is pinned to `1.94.0` in `pdf_pipeline/rust-toolchain.toml`; do not change it casually.
 - Keep the crate unified. Do not split `tbel-pdf` into separate core/adapters/cli crates unless the architecture docs are intentionally rewritten.
 - Prefer the smallest relevant subtree: workspace/build changes in `pdf_pipeline/`, crate code in `pdf_pipeline/tbel-pdf/`, regression data in `pdf_pipeline/tests/`.
 - Do not commit generated outputs from `pdf_pipeline/tests/output/`, `target/`, or `.osgrep/`.
-- `okf/` is generated knowledge documentation; keep concept docs citation-backed and in sync with code, and update `okf/log.md` when adding or refreshing concepts.
-- Live OCR requires `MISTRAL_API_KEY`; normal tests should remain offline and use committed fixtures.
+- `okf/` is generated knowledge documentation; keep concept docs citation-backed and in sync with code.
 
 ## Validation
 
@@ -54,17 +64,6 @@ bash ci-check.sh
 ```
 
 `ci-check.sh` also checks native library/CLI builds, wasm32 library builds, optional wasm smoke, and optional coverage when the required tools are installed.
-
-## Key docs
-
-| Doc | Path |
-| --- | --- |
-| Agent knowledge bundle (OKF v0.1) | `okf/index.md` |
-| Architecture and invariants | `ARCHITECTURE.md` |
-| Business overview | `README.md` |
-| Workspace operation | `pdf_pipeline/README.md` |
-| Crate API and fixtures | `pdf_pipeline/tbel-pdf/README.md` |
-| CLI JSON contract | `pdf_pipeline/docs/cli-contract.md` |
 
 ## Repository-specific gotchas
 

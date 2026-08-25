@@ -1,15 +1,17 @@
 # AGENTS.md
 
-## Scope
+## Scope and inheritance
 
-This is the only Rust crate in the workspace. It is intentionally unified: the same library code powers the native CLI and the wasm32 library build.
+Applies to: `pdf_pipeline/tbel-pdf/` (the `tbel-pdf` crate).
+
+Inherits workspace guidance from `../AGENTS.md` and repository-wide guidance from `../../AGENTS.md`. This file defines only local differences for this subtree.
 
 ## What lives here
 
 ```text
 tbel-pdf/
 ├── Cargo.toml                   # Features: default=[], cli; crate-type cdylib+rlib
-├── prompts/                     # Mistral prompt templates
+├── prompts/                     # Mistral prompt templates (e.g. date extraction)
 ├── src/
 │   ├── lib.rs                   # Public API re-exports and wasm/cli guards
 │   ├── processing.rs            # ProcessingFacade shared by CLI and wasm
@@ -19,9 +21,11 @@ tbel-pdf/
 │   ├── commands/                # clap command dispatch and XLSX export path
 │   ├── contract/                # CLI JSON contracts and exit codes; native only
 │   ├── models/                  # Pure domain types; no I/O
-│   └── ocr.rs, pdf.rs, scraper.rs, date.rs, markdown.rs, table_extraction.rs
-└── tests/                       # Integration test and Node wasm smoke runner
+│   └── adapters/                # Back-compat re-exports only; not canonical
+└── tests/                       # Integration test (pipeline.rs) + wasm smoke (worker_smoke.mjs)
 ```
+
+Canonical top-level modules outside the tree above: `ocr.rs`, `pdf.rs`, `scraper.rs`, `date.rs`, `markdown.rs`, `table_extraction.rs`, `cleaner.rs`, `normalization.rs`, plus shared `error.rs` and `types.rs`.
 
 ## Local boundaries and invariants
 
@@ -30,7 +34,7 @@ tbel-pdf/
 - `src/report_cleaning.rs` is library code used by tests and exports; keep it free of CLI-only dependencies such as `clap`, `tracing-subscriber`, and native-only file output.
 - `src/commands/` and `src/bin/` require the `cli` feature. The `cli` feature is not supported on wasm32.
 - `src/contract/` is native-only but externally visible through CLI JSON. Keep it synchronized with `../docs/cli-contract.md`.
-- `src/adapters/mod.rs` only re-exports top-level modules. Edit canonical implementations in `src/ocr.rs`, `src/pdf.rs`, `src/date.rs`, `src/markdown.rs`, and related top-level files.
+- `src/adapters/mod.rs` only re-exports top-level modules. Edit canonical implementations in the top-level module files.
 
 ## Safe change rules
 
